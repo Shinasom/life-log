@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
+from django.db import models
 
 from .models import Habit, HabitLog, Goal, GoalProgress, Task, DailyLog
 from .serializers import (
@@ -22,10 +23,6 @@ from .serializers import (
 # ==========================================
 
 class DashboardView(APIView):
-    """
-    Aggregates all daily context into a single efficient payload.
-    Prevents the frontend from making 5+ API calls on load.
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, date_str):
@@ -35,39 +32,30 @@ class DashboardView(APIView):
 
         user = request.user
 
-        # A. Fetch Daily Log (Aggregator)
+        # A. Fetch Daily Log
         daily_log = DailyLog.objects.filter(user=user, date=date).first()
 
-        # B. Fetch Habits with "Smart Prefetching"
-        # We only want the log for THIS specific date attached to the habit.
-        # This prevents the 'N+1 query' problem.
+        # B. Fetch Habits with Prefetch
         habit_logs_prefetch = Prefetch(
             'logs',
             queryset=HabitLog.objects.filter(date=date),
-            to_attr='todays_logs_list' # Stores result in a temporary list attribute
+            to_attr='todays_logs_list'
         )
-        
         habits = Habit.objects.filter(user=user, is_active=True).prefetch_related(habit_logs_prefetch)
-
-        # Attach the single log instance manually for the Serializer to find
         for habit in habits:
-            # logic: if list has item, take first, else None.
             habit.today_log_instance = habit.todays_logs_list[0] if habit.todays_logs_list else None
 
-        # C. Fetch Goals with similar Prefetch logic
+        # C. Fetch Goals with Prefetch
         goal_progress_prefetch = Prefetch(
             'progress_logs',
             queryset=GoalProgress.objects.filter(date=date),
             to_attr='todays_progress_list'
         )
-        
         goals = Goal.objects.filter(user=user, is_active=True).prefetch_related(goal_progress_prefetch)
-        
         for goal in goals:
             goal.today_progress_instance = goal.todays_progress_list[0] if goal.todays_progress_list else None
 
-        # D. Fetch Tasks (Persistent Inbox)
-        # We fetch all incomplete tasks OR tasks completed ON this specific date
+        # D. Fetch Tasks
         tasks = Task.objects.filter(user=user).filter(
             models.Q(is_completed=False) | models.Q(completed_at__date=date)
         ).order_by('created_at')
@@ -90,9 +78,6 @@ class DashboardView(APIView):
 # ==========================================
 
 class LogHabitView(APIView):
-    """
-    Upsert logic: If a log exists for this day, update it. If not, create it.
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -105,10 +90,8 @@ class LogHabitView(APIView):
         if not all([habit_id, date_str, status_val]):
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Security: Ensure user owns the habit
         habit = get_object_or_404(Habit, id=habit_id, user=request.user)
         
-        # UPSERT (Update or Insert)
         log, created = HabitLog.objects.update_or_create(
             habit=habit,
             date=date_str,
@@ -118,14 +101,10 @@ class LogHabitView(APIView):
                 'note': note
             }
         )
-        
         return Response(HabitLogSerializer(log).data, status=status.HTTP_200_OK)
 
 
 class LogGoalProgressView(APIView):
-    """
-    Toggles the 'moved_forward' status or updates the note.
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -144,7 +123,6 @@ class LogGoalProgressView(APIView):
                 'note': note
             }
         )
-        
         return Response(GoalProgressSerializer(log).data, status=status.HTTP_200_OK)
 
 
@@ -181,3 +159,15 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+# 👇 THIS IS THE NEW CLASS YOU WERE MISSING 👇
+class HabitLogViewSet(viewsets.ModelViewSet):
+    """
+    Exposes Logs directly so we can DELETE them by ID.
+    Used for 'Unmarking' a habit.
+    """
+    serializer_class = HabitLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return HabitLog.objects.filter(habit__user=self.request.user)

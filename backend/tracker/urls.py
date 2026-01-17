@@ -6,23 +6,19 @@ from .views import (
     LogGoalProgressView, 
     HabitViewSet, 
     GoalViewSet, 
-    TaskViewSet
+    TaskViewSet,
+    HabitLogViewSet # <--- Import New ViewSet
 )
 
-# Router for standard CRUD (Habit management, etc.)
 router = DefaultRouter()
 router.register(r'habits', HabitViewSet, basename='habit')
 router.register(r'goals', GoalViewSet, basename='goal')
 router.register(r'tasks', TaskViewSet, basename='task')
+router.register(r'logs', HabitLogViewSet, basename='habitlog') # <--- Register Route
 
 urlpatterns = [
-    # A. The Dashboard (The "One Call" Endpoint)
     path('dashboard/<str:date_str>/', DashboardView.as_view(), name='dashboard'),
-
-    # B. Quick Logging Actions (Optimized for "Log Anytime")
     path('log/habit/', LogHabitView.as_view(), name='log-habit'),
     path('log/goal/', LogGoalProgressView.as_view(), name='log-goal'),
-
-    # C. Standard Management (CRUD)
     path('', include(router.urls)),
 ]
