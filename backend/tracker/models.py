@@ -18,7 +18,14 @@ class Goal(BaseModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="goals")
     name = models.CharField(max_length=255)
     category = models.CharField(max_length=100, blank=True)
-    is_active = models.BooleanField(default=True)
+    
+    # Status Flags
+    is_active = models.BooleanField(default=True) # False = Archived
+    is_completed = models.BooleanField(default=False) # True = Done/Success
+    
+    # Completion Metadata (For the AI Summary later)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    completion_note = models.TextField(blank=True, null=True)
 
     def __str__(self): return self.name
 
@@ -52,6 +59,7 @@ class Habit(BaseModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="habits")
     name = models.CharField(max_length=255)
     habit_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default='BUILD')
+    description = models.TextField(blank=True, null=True)
     frequency = models.CharField(max_length=10, choices=FREQUENCY_CHOICES, default='DAILY')
     
     tracking_mode = models.CharField(max_length=10, choices=MODE_CHOICES, default='BINARY')
@@ -80,7 +88,6 @@ class HabitLog(BaseModel):
         ('FAILED', 'Failed')
     ]
 
-    # ✅ CORRECTED: Removed 'user' field.
     habit = models.ForeignKey(Habit, on_delete=models.CASCADE, related_name="logs")
     date = models.DateField(db_index=True)
     
@@ -96,7 +103,6 @@ class HabitLog(BaseModel):
         return self.status in ['DONE', 'RESISTED']
 
     def clean(self):
-        # Allow checking mode without crashing if habit is not yet linked (rare edge case)
         try:
             mode = self.habit.tracking_mode
         except Habit.DoesNotExist:
@@ -119,7 +125,6 @@ class HabitLog(BaseModel):
 # --- DAILY AGGREGATES ---
 
 class DailyLog(BaseModel):
-    # This keeps 'user' because it is a Root Entity
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="daily_logs")
     date = models.DateField(db_index=True)
     mood_score = models.IntegerField(null=True, blank=True)
@@ -130,7 +135,6 @@ class DailyLog(BaseModel):
         unique_together = ('user', 'date')
 
 class GoalProgress(BaseModel):
-    # ✅ CORRECTED: Removed 'user' field.
     goal = models.ForeignKey(Goal, on_delete=models.CASCADE, related_name="progress_logs")
     date = models.DateField(db_index=True)
     moved_forward = models.BooleanField(default=True)
