@@ -1,11 +1,12 @@
+from django.db.models import Prefetch, Q
+from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_date
+from django.utils import timezone
+from datetime import timedelta
 from rest_framework import viewsets, status, generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Prefetch
-from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_date
-from django.db import models
 
 from .models import Habit, HabitLog, Goal, GoalProgress, Task, DailyLog
 from .serializers import (
@@ -17,9 +18,10 @@ from .serializers import (
     HabitLogSerializer,
     GoalProgressSerializer
 )
+from .services import evaluate_windowed_habits # 👈 Logic for Auto-Fail
 
 # ==========================================
-# 1. THE DASHBOARD (READ CORE)
+# 1. THE DASHBOARD (READ CORE + LOGIC ENGINE)
 # ==========================================
 
 class DashboardView(APIView):
@@ -32,44 +34,100 @@ class DashboardView(APIView):
 
         user = request.user
 
-        # A. Fetch Daily Log
+        # ---------------------------------------------------------
+        # A. LAZY EVALUATION (The "Auto-Fail" Checker)
+        # Only run if looking at Today/Yesterday to keep app fast
+        # ---------------------------------------------------------
+        if date >= (timezone.now().date() - timedelta(days=1)):
+             evaluate_windowed_habits(user)
+
+        # ---------------------------------------------------------
+        # B. FETCH DATA
+        # ---------------------------------------------------------
+        
+        # 1. Daily Log
         daily_log = DailyLog.objects.filter(user=user, date=date).first()
 
-        # B. Fetch Habits with Prefetch
-        habit_logs_prefetch = Prefetch(
-            'logs',
-            queryset=HabitLog.objects.filter(date=date),
-            to_attr='todays_logs_list'
-        )
-        habits = Habit.objects.filter(user=user, is_active=True).prefetch_related(habit_logs_prefetch)
-        for habit in habits:
-            habit.today_log_instance = habit.todays_logs_list[0] if habit.todays_logs_list else None
-
-        # C. Fetch Goals with Prefetch
+        # 2. Habits (Prefetch logs for efficiency)
+        # We need ALL logs to calculate window progress, not just today's
+        habits_qs = Habit.objects.filter(user=user, is_active=True).prefetch_related('logs')
+        
+        # 3. Goals
+        # Prefetch today's progress for easy access
         goal_progress_prefetch = Prefetch(
             'progress_logs',
             queryset=GoalProgress.objects.filter(date=date),
-            to_attr='todays_progress_list'
+            to_attr='today_progress_instance'
         )
         goals = Goal.objects.filter(user=user, is_active=True).prefetch_related(goal_progress_prefetch)
-        for goal in goals:
-            goal.today_progress_instance = goal.todays_progress_list[0] if goal.todays_progress_list else None
 
-        # D. Fetch Tasks
+        # 4. Tasks (Pending OR Completed Today)
         tasks = Task.objects.filter(user=user).filter(
-            models.Q(is_completed=False) | models.Q(completed_at__date=date)
+            Q(is_completed=False) | Q(completed_at__date=date)
         ).order_by('created_at')
 
-        # E. Serialize and Return
-        data = {
+        # ---------------------------------------------------------
+        # C. SMART FILTERING LOGIC
+        # ---------------------------------------------------------
+        visible_habits = []
+        
+        for habit in habits_qs:
+            # Attach Today's Log manually for the Serializer
+            # (We scan the prefetched list instead of DB query)
+            today_log = next((l for l in habit.logs.all() if l.date == date), None)
+            habit.today_log_instance = today_log
+
+            # --- FILTER 1: Weekly Habits ---
+            if habit.frequency == 'WEEKLY':
+                # Get Today's code: 'MON', 'TUE'...
+                today_code = date.strftime('%a').upper()[:3] 
+                required_days = habit.frequency_config.get('days', [])
+                
+                # If today is not in the schedule, HIDE IT
+                if today_code not in required_days:
+                    continue 
+
+            # --- FILTER 2: Windowed Habits (N in M days) ---
+            if habit.frequency == 'WINDOWED':
+                target = int(habit.frequency_config.get('target', 1))
+                period = int(habit.frequency_config.get('period', 7))
+                
+                start_date = habit.created_at.date()
+                days_active = (date - start_date).days
+                
+                # Calculate Window Range
+                if days_active >= 0:
+                    current_window_idx = days_active // period
+                    window_start = start_date + timedelta(days=current_window_idx * period)
+                    window_end = window_start + timedelta(days=period - 1)
+
+                    # Count SUCCESSFUL logs in this window
+                    # (Note: We use the prefetched logs)
+                    success_count = sum(
+                        1 for l in habit.logs.all() 
+                        if window_start <= l.date <= window_end and l.is_success
+                    )
+
+                    # RULE: Hide if Target Met, UNLESS the last action was Today
+                    # (We want to see the checkmark if we just did it)
+                    if success_count >= target:
+                        did_it_today = (today_log and today_log.is_success)
+                        if not did_it_today:
+                            continue # Hide satisfied habit
+
+            visible_habits.append(habit)
+
+        # ---------------------------------------------------------
+        # D. SERIALIZE & RETURN
+        # ---------------------------------------------------------
+        serializer = DashboardSerializer({
             "date": date,
             "daily_log": daily_log,
-            "habits": habits,
+            "habits": visible_habits, # 👈 Using filtered list
             "goals": goals,
             "tasks": tasks
-        }
+        })
         
-        serializer = DashboardSerializer(data)
         return Response(serializer.data)
 
 
@@ -160,7 +218,6 @@ class TaskViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-# 👇 THIS IS THE NEW CLASS YOU WERE MISSING 👇
 class HabitLogViewSet(viewsets.ModelViewSet):
     """
     Exposes Logs directly so we can DELETE them by ID.

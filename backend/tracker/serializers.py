@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import Habit, HabitLog, Goal, GoalProgress, Task, DailyLog
-
+from django.utils import timezone
 # --- LOGS (Child Serializers) ---
 
 class HabitLogSerializer(serializers.ModelSerializer):
@@ -9,7 +9,11 @@ class HabitLogSerializer(serializers.ModelSerializer):
         fields = ['id', 'habit', 'date', 'status', 'entry_value', 'note', 'is_success']
         read_only_fields = ['id', 'is_success']
 
-# 👇 Defined FIRST so GoalSerializer can use it
+    def validate_date(self, value):
+        if value > timezone.now().date():
+            raise serializers.ValidationError("You cannot log habits for the future.")
+        return value
+# Defined FIRST so GoalSerializer can use it
 class GoalProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = GoalProgress
@@ -19,8 +23,6 @@ class GoalProgressSerializer(serializers.ModelSerializer):
 
 class HabitSerializer(serializers.ModelSerializer):
     today_log = serializers.SerializerMethodField()
-    
-    # This fetches the name from the relation
     linked_goal_name = serializers.ReadOnlyField(source='linked_goal.name')
 
     class Meta:
@@ -31,6 +33,7 @@ class HabitSerializer(serializers.ModelSerializer):
             'description', 
             'habit_type', 
             'frequency', 
+            'frequency_config', # 👈 Added this new field
             'tracking_mode', 
             'config', 
             'linked_goal', 
@@ -47,8 +50,6 @@ class HabitSerializer(serializers.ModelSerializer):
 
 class GoalSerializer(serializers.ModelSerializer):
     today_progress = serializers.SerializerMethodField()
-    
-    # 👇 THIS IS THE MISSING PART THAT CAUSED YOUR ERROR
     logs = serializers.SerializerMethodField()
 
     class Meta:
@@ -56,17 +57,25 @@ class GoalSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'category', 'today_progress', 
             'is_active', 'is_completed', 'completed_at',
-            'logs' # 👈 Now valid because 'logs' is defined above
+            'logs'
         ]
 
     def get_today_progress(self, obj):
+        # Check if the attribute exists (populated by prefetch)
         if hasattr(obj, 'today_progress_instance'):
-            log = obj.today_progress_instance
-            if log:
-                return GoalProgressSerializer(log).data
+            progress_list = obj.today_progress_instance
+            
+            # 🔍 FIX: Handle the list returned by Prefetch
+            if isinstance(progress_list, list):
+                if progress_list:
+                    return GoalProgressSerializer(progress_list[0]).data
+            
+            # Fallback if it somehow isn't a list (e.g. manual assignment)
+            elif progress_list:
+                return GoalProgressSerializer(progress_list).data
+                
         return None
 
-    # 👇 Logic to fetch the history
     def get_logs(self, obj):
         logs = obj.progress_logs.all().order_by('-date', '-created_at')
         return GoalProgressSerializer(logs, many=True).data
