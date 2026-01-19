@@ -186,4 +186,6 @@ class GoalProgress(BaseModel):
     note = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
-        unique_together = ('goal', 'date')
+        # ❌ REMOVED: unique_together = ('goal', 'date')
+        # This allows multiple logs for the same goal on the same day
+        ordering = ['-date', '-created_at']

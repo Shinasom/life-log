@@ -14,4 +14,6 @@ urlpatterns = [
     
     # The Core App
     path('api/v1/', include('tracker.urls')),
+
+    path('api/v1/auth/', include('users.urls')),
 ]

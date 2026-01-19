@@ -54,12 +54,20 @@ class DashboardView(APIView):
         
         # 3. Goals
         # Prefetch today's progress for easy access
+        # 3. Goals
+        # Prefetch today's progress for easy access
         goal_progress_prefetch = Prefetch(
             'progress_logs',
             queryset=GoalProgress.objects.filter(date=date),
             to_attr='today_progress_instance'
         )
-        goals = Goal.objects.filter(user=user, is_active=True).prefetch_related(goal_progress_prefetch)
+        
+        # 🔒 FILTER: Only show active, UNCOMPLETED goals on the dashboard
+        goals = Goal.objects.filter(
+            user=user, 
+            is_active=True, 
+            is_completed=False  # 👈 Added this filter
+        ).prefetch_related(goal_progress_prefetch)
 
         # 4. Tasks (Pending OR Completed Today)
         tasks = Task.objects.filter(user=user).filter(
@@ -228,3 +236,33 @@ class HabitLogViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return HabitLog.objects.filter(habit__user=self.request.user)
+    
+
+
+# goal progress log with check for completed goal
+
+# backend/tracker/views.py
+
+class LogGoalProgressView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        goal_id = request.data.get('goal_id')
+        date_str = request.data.get('date')
+        moved_forward = request.data.get('moved_forward', True)
+        note = request.data.get('note', '')
+
+        goal = get_object_or_404(Goal, id=goal_id, user=request.user)
+
+        if goal.is_completed:
+             return Response({"error": "Goal is completed"}, status=400)
+
+        # ✅ CHANGE: Use .create() instead of .update_or_create()
+        log = GoalProgress.objects.create(
+            goal=goal,
+            date=date_str,
+            moved_forward=moved_forward,
+            note=note
+        )
+        
+        return Response(GoalProgressSerializer(log).data, status=status.HTTP_200_OK)
