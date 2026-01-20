@@ -1,7 +1,13 @@
 from rest_framework import serializers
 from .models import Habit, HabitLog, Goal, GoalProgress, Task, DailyLog
 from django.utils import timezone
-# --- LOGS (Child Serializers) ---
+from ai_features.models import GoalInsight 
+
+# --- NEW SERIALIZER ---
+class GoalInsightSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GoalInsight
+        fields = ['overview', 'patterns', 'reflection']
 
 class HabitLogSerializer(serializers.ModelSerializer):
     class Meta:
@@ -13,17 +19,22 @@ class HabitLogSerializer(serializers.ModelSerializer):
         if value > timezone.now().date():
             raise serializers.ValidationError("You cannot log habits for the future.")
         return value
-# Defined FIRST so GoalSerializer can use it
+
 class GoalProgressSerializer(serializers.ModelSerializer):
+    # 👇 THIS LINE FIXES YOUR ERROR
+    source_habit_name = serializers.ReadOnlyField(source='source_habit.name')
+
     class Meta:
         model = GoalProgress
-        fields = ['id', 'goal', 'date', 'moved_forward', 'note', 'created_at']
-
-# --- ENTITIES (Parent Serializers) ---
+        fields = [
+            'id', 'goal', 'date', 'moved_forward', 'note', 'created_at', 
+            'source_habit', 'source_habit_name'
+        ]
 
 class HabitSerializer(serializers.ModelSerializer):
     today_log = serializers.SerializerMethodField()
     linked_goal_name = serializers.ReadOnlyField(source='linked_goal.name')
+    linked_goal_is_completed = serializers.ReadOnlyField(source='linked_goal.is_completed')
 
     class Meta:
         model = Habit
@@ -33,11 +44,13 @@ class HabitSerializer(serializers.ModelSerializer):
             'description', 
             'habit_type', 
             'frequency', 
-            'frequency_config', # 👈 Added this new field
+            'frequency_config', 
             'tracking_mode', 
             'config', 
             'linked_goal', 
             'linked_goal_name', 
+            # 👇 Keep this in the fields list
+            'linked_goal_is_completed', 
             'today_log'
         ]
 
@@ -49,32 +62,16 @@ class HabitSerializer(serializers.ModelSerializer):
         return None
 
 class GoalSerializer(serializers.ModelSerializer):
-    today_progress = serializers.SerializerMethodField()
+    ai_insight = GoalInsightSerializer(read_only=True)
     logs = serializers.SerializerMethodField()
 
     class Meta:
         model = Goal
         fields = [
-            'id', 'name', 'category', 'today_progress', 
-            'is_active', 'is_completed', 'completed_at',
-            'logs'
+            'id', 'name', 'category', 'is_active', 
+            'is_completed', 'completed_at', 'completion_note', 
+            'logs', 'ai_insight'
         ]
-
-    def get_today_progress(self, obj):
-        # Check if the attribute exists (populated by prefetch)
-        if hasattr(obj, 'today_progress_instance'):
-            progress_list = obj.today_progress_instance
-            
-            # 🔍 FIX: Handle the list returned by Prefetch
-            if isinstance(progress_list, list):
-                if progress_list:
-                    return GoalProgressSerializer(progress_list[0]).data
-            
-            # Fallback if it somehow isn't a list (e.g. manual assignment)
-            elif progress_list:
-                return GoalProgressSerializer(progress_list).data
-                
-        return None
 
     def get_logs(self, obj):
         logs = obj.progress_logs.all().order_by('-date', '-created_at')
@@ -89,8 +86,6 @@ class DailyLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = DailyLog
         fields = ['id', 'date', 'mood_score', 'energy_level', 'note']
-
-# --- THE AGGREGATOR (For the /today endpoint) ---
 
 class DashboardSerializer(serializers.Serializer):
     date = serializers.DateField()

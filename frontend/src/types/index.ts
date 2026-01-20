@@ -15,6 +15,8 @@ export interface Habit {
   config?: any;
   linked_goal?: string;
   linked_goal_name?: string;
+  is_active: boolean;
+  linked_goal_is_completed?: boolean;
   today_log?: {
     id: string;
     status: 'DONE' | 'MISSED' | 'FAILED' | 'PARTIAL' | 'RESISTED';
@@ -32,16 +34,25 @@ export interface HabitLog {
   note?: string;
 }
 
+export interface GoalInsight {
+  overview: string;
+  patterns: string[];
+  reflection: string | null;
+}
+
 export interface Goal {
   id: string;
   name: string;
   category: string;
   today_progress: GoalProgress | null;
-  // 👇 Added these so Goals Page works
   is_active: boolean;
   is_completed: boolean;
   completed_at?: string;
-  logs?: GoalProgress[]; // For the history timeline
+  completion_note?: string; // 👈 Make sure this is here too
+  logs?: GoalProgress[];
+  ai_insight?: GoalInsight;
+  source_habit?: string | null;
+  source_habit_name?: string | null; // 👈 The new field
 }
 
 export interface GoalProgress {

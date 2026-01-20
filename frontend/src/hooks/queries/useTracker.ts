@@ -81,18 +81,22 @@ export const useCreateGoal = () => {
 };
 
 // 6. Log Goal Progress
-export const useLogGoalProgress = () => {
+export function useLogGoalProgress() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { goal_id: string; date: string; moved_forward: boolean; note?: string }) => {
-      const { data } = await api.post('/log/goal/', payload);
-      return data;
+    mutationFn: async (data: LogGoalProgressVars) => {
+      // 🔴 WAS: const res = await api.post('/tracker/goal-progress/', data);
+      // 🟢 FIX: Matches 'path("log/goal/", ...)' in backend/tracker/urls.py
+      const res = await api.post('/log/goal/', data); 
+      return res.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: ['goal', variables.goal_id] });
+      queryClient.invalidateQueries({ queryKey: ['habits'] });
     },
   });
-};
+}
 
 // 7. Fetch All Goals
 export const useGoals = () => {
@@ -229,3 +233,10 @@ export const useDashboard = (date: string) => {
     enabled: !!date, // Only run if date is provided
   });
 };
+interface LogGoalProgressVars {
+  goal_id: string;
+  date: string;
+  moved_forward: boolean;
+  note?: string;
+  habit_id?: string; // 👈 Add optional habit_id
+}

@@ -78,12 +78,20 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
 
   // --- HANDLERS ---
   const handleMarkDone = async () => {
+    // 1. Log the habit as done
     await logHabit.mutateAsync({
       habit_id: habit.id,
       date: format(selectedDate, 'yyyy-MM-dd'),
       status: habit.habit_type === 'QUIT' ? 'RESISTED' : 'DONE'
     });
-    if (habit.linked_goal) setShowGoalPrompt(true);
+    
+    // 👇 2. SMART CHECK:
+    // Only ask for momentum if:
+    // a) There is a linked goal
+    // b) The goal is NOT completed
+    if (habit.linked_goal && !habit.linked_goal_is_completed) {
+      setShowGoalPrompt(true);
+    }
   };
 
   const handleMarkMissed = () => {
@@ -106,7 +114,8 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
       goal_id: habit.linked_goal,
       date: format(selectedDate, 'yyyy-MM-dd'),
       moved_forward: true,
-      note: bridgeNote || `Momentum via habit: ${habit.name}` 
+      note: bridgeNote || `Momentum via habit: ${habit.name}`,
+      habit_id: habit.id // 👈 PASS THE ID HERE
     });
     setShowGoalPrompt(false); 
     setBridgeNote('');
