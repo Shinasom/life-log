@@ -58,10 +58,12 @@ export interface Goal {
 export interface GoalProgress {
   id: string;
   goal: string;
-  date: string; // ISO Date string
+  date: string; 
   moved_forward: boolean;
   note?: string;
   created_at?: string;
+  // ADD THIS LINE:
+  source_habit?: string | null; 
 }
 
 export interface Task {
