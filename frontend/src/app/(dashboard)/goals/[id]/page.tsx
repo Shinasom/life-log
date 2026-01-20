@@ -169,7 +169,10 @@ export default function GoalDetailPage() {
 
           {/* 👇 3. REUSE EXISTING HEATMAP COMPONENT */}
           <div className="mt-4 pt-4 border-t border-gray-100">
-             <HabitHeatmap logs={heatmapLogs} createdAt={goal.created_at} />
+            <HabitHeatmap 
+                  logs={heatmapLogs} 
+                  createdAt={goal.created_at || new Date().toISOString()} 
+                />
           </div>
         </div>
 
