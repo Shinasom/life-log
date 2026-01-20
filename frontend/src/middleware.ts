@@ -1,26 +1,46 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// 👇 This MUST be named 'middleware' and exported
 export function middleware(request: NextRequest) {
-  const token = request.cookies.get('accessToken')?.value;
-  const { pathname } = request.nextUrl;
-  const isPublicRoute = pathname.startsWith('/login') || pathname.startsWith('/register') || pathname.startsWith('/auth');
+  const path = request.nextUrl.pathname;
 
-  // Case 1: No Token + Protected Route -> Redirect to Login
-  if (!token && !isPublicRoute) {
-    return NextResponse.redirect(new URL('/login', request.url));
+  // 👇 1. DEFINE PUBLIC PATHS
+  // We must explicitly list '/signup' here so the app doesn't kick you out.
+  const isPublicPath = path === '/login' || path === '/signup';
+
+  // 👇 2. GET TOKEN
+  // We check for the cookie named 'accessToken' (matches your useLogin logic)
+  const token = request.cookies.get('accessToken')?.value || '';
+
+  // 👇 3. REDIRECT LOGIC
+  
+  // Case A: User is logged in, but tries to go to Login or Signup
+  // Action: Redirect them to the Dashboard (Home)
+  if (isPublicPath && token) {
+    return NextResponse.redirect(new URL('/', request.nextUrl));
   }
 
-  // Case 2: Has Token + Public Route -> Redirect to Today
-  if (token && isPublicRoute) {
-    return NextResponse.redirect(new URL('/today', request.url)); // 👈 CHANGED TO /today
+  // Case B: User is NOT logged in, but tries to go to a Protected Page
+  // Action: Redirect them to Login
+  if (!isPublicPath && !token) {
+    return NextResponse.redirect(new URL('/login', request.nextUrl));
   }
-
-  return NextResponse.next();
+  
+  // Case C: User is on a public page and not logged in (e.g. Signup)
+  // Action: Do nothing, let them view the page.
 }
 
-// Configuration to ignore static files
+// 👇 4. MATCHER CONFIG
+// This tells Next.js which routes to run this middleware on.
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+  ],
 };

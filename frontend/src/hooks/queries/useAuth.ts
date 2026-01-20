@@ -52,3 +52,14 @@ export const useLogout = () => {
     router.push('login');
   };
 };
+
+export const useRegister = () => {
+  return useMutation({
+    mutationFn: async (userData: any) => {
+      // This sends the POST request to your Django registration endpoint
+      // Ensure your backend has a path for '/auth/register/'
+      const response = await api.post('/auth/register/', userData);
+      return response.data;
+    },
+  });
+};
