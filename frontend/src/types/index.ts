@@ -64,6 +64,7 @@ export interface GoalProgress {
   created_at?: string;
   // ADD THIS LINE:
   source_habit?: string | null; 
+   source_habit_name?: string | null;
 }
 
 export interface Task {
