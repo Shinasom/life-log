@@ -53,6 +53,7 @@ export interface Goal {
   ai_insight?: GoalInsight;
   source_habit?: string | null;
   source_habit_name?: string | null; // 👈 The new field
+  created_at?: string;
 }
 
 export interface GoalProgress {
