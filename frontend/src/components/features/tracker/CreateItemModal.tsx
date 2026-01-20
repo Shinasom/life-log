@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useCreateHabit, useCreateGoal, useGoals } from '@/hooks/queries/useTracker';
+import { useState, useEffect } from 'react';
+import { useCreateHabit, useCreateGoal, useEditHabit, useEditGoal, useGoals } from '@/hooks/queries/useTracker';
 import { useUIStore } from '@/hooks/stores/useUIStore';
 import { X, Loader2, Repeat, Target, Link as LinkIcon, AlignLeft, CalendarClock } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -17,34 +17,71 @@ const DAYS_OF_WEEK = [
 ];
 
 export default function CreateItemModal() {
-  const { isGlobalAddOpen, toggleGlobalAdd } = useUIStore();
-  const createHabit = useCreateHabit();
-  const createGoal = useCreateGoal();
+  const { isGlobalAddOpen, toggleGlobalAdd, itemToEdit, editType } = useUIStore();
   
-  // Fetch goals for the dropdown
+  // Mutations
+  const createHabit = useCreateHabit();
+  const editHabit = useEditHabit();
+  const createGoal = useCreateGoal();
+  const editGoal = useEditGoal();
+  
   const { data: goals } = useGoals();
   const activeGoals = goals?.filter((g: any) => g.is_active && !g.is_completed) || [];
 
+  // State
   const [mode, setMode] = useState<'HABIT' | 'GOAL'>('HABIT');
-  
-  // --- FORM STATE ---
   const [name, setName] = useState('');
   
-  // Habit - Core
+  // Habit State
   const [description, setDescription] = useState('');
   const [habitType, setHabitType] = useState<'BUILD' | 'QUIT'>('BUILD');
   const [selectedGoalId, setSelectedGoalId] = useState<string>('');
   
-  // Habit - Frequency Engine
   const [frequency, setFrequency] = useState<'DAILY' | 'WEEKLY' | 'WINDOWED'>('DAILY');
-  const [selectedDays, setSelectedDays] = useState<string[]>([]); // For Weekly
-  const [windowTarget, setWindowTarget] = useState(1); // For Windowed (N)
-  const [windowPeriod, setWindowPeriod] = useState(7); // For Windowed (M)
+  const [selectedDays, setSelectedDays] = useState<string[]>([]);
+  const [windowTarget, setWindowTarget] = useState(1);
+  const [windowPeriod, setWindowPeriod] = useState(7);
 
-  // Goal
+  // Goal State
   const [category, setCategory] = useState('');
 
-  // Helper for Weekly Toggles
+  // 🔄 EFFECT: Load Data when Editing
+  useEffect(() => {
+    if (isGlobalAddOpen && itemToEdit) {
+      setMode(editType || 'HABIT');
+      setName(itemToEdit.name);
+      
+      if (editType === 'HABIT') {
+        setDescription(itemToEdit.description || '');
+        setHabitType(itemToEdit.habit_type);
+        setFrequency(itemToEdit.frequency);
+        setSelectedGoalId(itemToEdit.linked_goal || '');
+
+        if (itemToEdit.frequency === 'WEEKLY') {
+          setSelectedDays(itemToEdit.frequency_config?.days || []);
+        } else if (itemToEdit.frequency === 'WINDOWED') {
+          setWindowTarget(itemToEdit.frequency_config?.target || 1);
+          setWindowPeriod(itemToEdit.frequency_config?.period || 7);
+        }
+      } else {
+        setCategory(itemToEdit.category || '');
+      }
+    } else if (isGlobalAddOpen && !itemToEdit) {
+      // Reset form for "New" mode
+      setName('');
+      setDescription('');
+      setCategory('');
+      setSelectedGoalId('');
+      setHabitType('BUILD');
+      setFrequency('DAILY');
+      setSelectedDays([]);
+      setWindowTarget(1);
+      setWindowPeriod(7);
+      setMode('HABIT');
+    }
+  }, [isGlobalAddOpen, itemToEdit, editType]);
+
+
   const toggleDay = (day: string) => {
     if (selectedDays.includes(day)) {
       setSelectedDays(selectedDays.filter(d => d !== day));
@@ -57,52 +94,47 @@ export default function CreateItemModal() {
     e.preventDefault();
     if (!name) return;
 
+    // --- HABIT SUBMISSION ---
     if (mode === 'HABIT') {
-      // 1. Build Frequency Config based on selection
       let freqConfig = {};
-      
       if (frequency === 'WEEKLY') {
-        if (selectedDays.length === 0) return alert('Please select at least one day for weekly habit.');
+        if (selectedDays.length === 0) return alert('Select at least one day.');
         freqConfig = { days: selectedDays };
       } else if (frequency === 'WINDOWED') {
-        if (windowTarget > windowPeriod) return alert('Target count cannot be greater than the period days.');
+        if (windowTarget > windowPeriod) return alert('Target cannot be greater than period.');
         freqConfig = { target: windowTarget, period: windowPeriod };
       }
 
-      // 2. Send to Backend
-      await createHabit.mutateAsync({
+      const payload = {
         name,
         description,
         habit_type: habitType,
         frequency,
-        frequency_config: freqConfig, // 👈 The magic JSON
-        tracking_mode: 'BINARY',
-        config: {},
-        ...(selectedGoalId ? { linked_goal: selectedGoalId } : {}) 
-      });
+        frequency_config: freqConfig,
+        linked_goal: selectedGoalId || null
+      };
+
+      if (itemToEdit) {
+        await editHabit.mutateAsync({ id: itemToEdit.id, payload });
+      } else {
+        await createHabit.mutateAsync({ ...payload, tracking_mode: 'BINARY', config: {} } as any);
+      }
+
+    // --- GOAL SUBMISSION ---
     } else {
-      await createGoal.mutateAsync({
-        name,
-        category,
-      });
+      const payload = { name, category };
+      if (itemToEdit) {
+        await editGoal.mutateAsync({ id: itemToEdit.id, payload });
+      } else {
+        await createGoal.mutateAsync(payload);
+      }
     }
 
-    // 3. Reset Form
-    setName('');
-    setDescription('');
-    setCategory('');
-    setSelectedGoalId('');
-    setHabitType('BUILD');
-    setFrequency('DAILY');
-    setSelectedDays([]);
-    setWindowTarget(1);
-    setWindowPeriod(7);
-    
     toggleGlobalAdd();
   };
 
   if (!isGlobalAddOpen) return null;
-  const isPending = createHabit.isPending || createGoal.isPending;
+  const isPending = createHabit.isPending || editHabit.isPending || createGoal.isPending || editGoal.isPending;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
@@ -110,21 +142,23 @@ export default function CreateItemModal() {
         
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white z-10">
-          <h2 className="font-semibold text-lg">Create New</h2>
+          <h2 className="font-semibold text-lg">{itemToEdit ? 'Edit Item' : 'Create New'}</h2>
           <button onClick={toggleGlobalAdd} className="p-2 hover:bg-gray-100 rounded-full">
             <X className="h-5 w-5 text-gray-500" />
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex p-2 gap-2 border-b bg-gray-50">
-          <button onClick={() => setMode('HABIT')} className={cn("flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2", mode === 'HABIT' ? "bg-white shadow text-black" : "text-gray-500")}>
-            <Repeat className="h-4 w-4" /> Habit
-          </button>
-          <button onClick={() => setMode('GOAL')} className={cn("flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2", mode === 'GOAL' ? "bg-white shadow text-black" : "text-gray-500")}>
-            <Target className="h-4 w-4" /> Goal
-          </button>
-        </div>
+        {/* Tabs (Only show if creating new) */}
+        {!itemToEdit && (
+          <div className="flex p-2 gap-2 border-b bg-gray-50">
+            <button onClick={() => setMode('HABIT')} className={cn("flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2", mode === 'HABIT' ? "bg-white shadow text-black" : "text-gray-500")}>
+              <Repeat className="h-4 w-4" /> Habit
+            </button>
+            <button onClick={() => setMode('GOAL')} className={cn("flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2", mode === 'GOAL' ? "bg-white shadow text-black" : "text-gray-500")}>
+              <Target className="h-4 w-4" /> Goal
+            </button>
+          </div>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-4 space-y-5">
@@ -132,7 +166,7 @@ export default function CreateItemModal() {
           {/* NAME */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{mode === 'HABIT' ? 'I want to...' : 'My Goal is to...'}</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={mode === 'HABIT' ? "e.g. Read 10 pages" : "e.g. Run a Marathon"} className="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-black outline-none" autoFocus />
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name your item" className="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-black outline-none" autoFocus />
           </div>
 
           {/* === HABIT FIELDS === */}
@@ -166,61 +200,41 @@ export default function CreateItemModal() {
                     ))}
                  </div>
 
-                 {/* A. WEEKLY SELECTOR */}
                  {frequency === 'WEEKLY' && (
                    <div className="flex justify-between pt-2">
                      {DAYS_OF_WEEK.map((day) => (
-                       <button
-                         key={day.value}
-                         type="button"
-                         onClick={() => toggleDay(day.value)}
-                         className={cn("h-8 w-8 rounded-full text-xs font-bold flex items-center justify-center transition-all", selectedDays.includes(day.value) ? "bg-black text-white" : "bg-gray-200 text-gray-500 hover:bg-gray-300")}
-                       >
-                         {day.label}
-                       </button>
+                       <button key={day.value} type="button" onClick={() => toggleDay(day.value)} className={cn("h-8 w-8 rounded-full text-xs font-bold flex items-center justify-center transition-all", selectedDays.includes(day.value) ? "bg-black text-white" : "bg-gray-200 text-gray-500 hover:bg-gray-300")}>{day.label}</button>
                      ))}
                    </div>
                  )}
 
-                 {/* B. WINDOWED SELECTOR (N in M) */}
                  {frequency === 'WINDOWED' && (
                    <div className="flex items-center gap-2 pt-2">
                       <span className="text-sm text-gray-500">Do it</span>
-                      <input 
-                        type="number" min="1" max="30"
-                        value={windowTarget} onChange={(e) => setWindowTarget(parseInt(e.target.value))}
-                        className="w-12 p-1 text-center border rounded bg-white"
-                      />
+                      <input type="number" min="1" max="30" value={windowTarget} onChange={(e) => setWindowTarget(parseInt(e.target.value))} className="w-12 p-1 text-center border rounded bg-white" />
                       <span className="text-sm text-gray-500">times in</span>
-                      <select 
-                        value={windowPeriod} 
-                        onChange={(e) => setWindowPeriod(parseInt(e.target.value))}
-                        className="p-1 border rounded bg-white text-sm"
-                      >
-                        <option value="7">7 days (Week)</option>
+                      <select value={windowPeriod} onChange={(e) => setWindowPeriod(parseInt(e.target.value))} className="p-1 border rounded bg-white text-sm">
+                        <option value="7">7 days</option>
                         <option value="14">14 days</option>
-                        <option value="30">30 days (Month)</option>
+                        <option value="30">30 days</option>
                       </select>
                    </div>
                  )}
               </div>
 
-              {/* Description */}
+              {/* Description & Link */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2"><AlignLeft className="h-3 w-3" /> Description</label>
-                <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Why is this important?" rows={2} className="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-black outline-none resize-none" />
+                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-black outline-none resize-none" />
               </div>
-
-              {/* Link Goal */}
-              {activeGoals.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2"><LinkIcon className="h-3 w-3" /> Link to Goal</label>
-                  <select value={selectedGoalId} onChange={(e) => setSelectedGoalId(e.target.value)} className="w-full p-3 rounded-lg border border-gray-300 bg-white outline-none">
-                    <option value="">No link</option>
-                    {activeGoals.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </select>
-                </div>
-              )}
+              
+              <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2"><LinkIcon className="h-3 w-3" /> Link to Goal</label>
+                 <select value={selectedGoalId} onChange={(e) => setSelectedGoalId(e.target.value)} className="w-full p-3 rounded-lg border border-gray-300 bg-white outline-none">
+                   <option value="">No link</option>
+                   {activeGoals.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                 </select>
+               </div>
             </>
           )}
 
@@ -234,7 +248,7 @@ export default function CreateItemModal() {
 
           <button type="submit" disabled={isPending} className="w-full bg-black text-white py-3 rounded-lg font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-2 mt-2">
             {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {mode === 'HABIT' ? 'Create Habit' : 'Set Goal'}
+            {itemToEdit ? 'Save Changes' : (mode === 'HABIT' ? 'Create Habit' : 'Set Goal')}
           </button>
         </form>
       </div>

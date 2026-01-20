@@ -2,10 +2,19 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { Loader2, CheckCircle2, XCircle, Circle, TrendingUp, AlertCircle, Clock } from 'lucide-react';
+import { 
+  Loader2, CheckCircle2, XCircle, Circle, TrendingUp, 
+  AlertCircle, Clock, MoreVertical, Edit2, Trash2 
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useLogHabit, useDeleteHabitLog, useLogGoalProgress } from '@/hooks/queries/useTracker';
-import { Habit } from '@/types'; // Ensure you import the type
+import { 
+  useLogHabit, 
+  useDeleteHabitLog, 
+  useLogGoalProgress, 
+  useDeleteHabit 
+} from '@/hooks/queries/useTracker';
+import { useUIStore } from '@/hooks/stores/useUIStore';
+import { Habit } from '@/types';
 
 interface HabitCardProps {
   habit: Habit;
@@ -13,17 +22,24 @@ interface HabitCardProps {
 }
 
 export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
+  // Queries & Mutations
   const logHabit = useLogHabit();
   const deleteLog = useDeleteHabitLog();
   const logGoal = useLogGoalProgress();
+  const deleteHabit = useDeleteHabit();
+  
+  // Stores
+  const { openEditModal, openConfirm } = useUIStore(); // 👈 Added openConfirm
 
+  // Habit Data
   const log = habit.today_log;
-  const status = log?.status; // 'DONE' | 'MISSED' | 'FAILED' ...
+  const status = log?.status; 
   const logId = log?.id;
 
   // Local State
   const [noteText, setNoteText] = useState(log?.note || '');
   const [isNoteOpen, setIsNoteOpen] = useState(!!log?.note);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   
   // Bridge Popup State
   const [showGoalPrompt, setShowGoalPrompt] = useState(false);
@@ -51,7 +67,6 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
     }
     
     if (habit.frequency === 'WEEKLY' && habit.frequency_config?.days) {
-      // Convert ['MON', 'WED'] -> "Mon, Wed"
       const days = habit.frequency_config.days
         .map((d: string) => d.charAt(0) + d.slice(1).toLowerCase())
         .join(', ');
@@ -97,6 +112,19 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
     setBridgeNote('');
   };
 
+  // --- DELETE HANDLER (NEW) ---
+  const handleDelete = () => {
+    setIsMenuOpen(false); // Close menu immediately
+    openConfirm({
+      title: "Delete Habit?",
+      message: `Are you sure you want to delete "${habit.name}"? This will permanently remove the habit and all its history.`,
+      actionLabel: "Delete Forever",
+      onConfirm: async () => {
+        await deleteHabit.mutateAsync(habit.id);
+      }
+    });
+  };
+
   // --- RENDER HELPERS ---
   const isFailed = status === 'FAILED';
   const isDone = status === 'DONE' || status === 'RESISTED';
@@ -105,12 +133,12 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
   return (
     <div 
       className={cn(
-        "bg-white p-4 rounded-xl border shadow-sm transition-all hover:shadow-md relative overflow-hidden",
+        "bg-white p-4 rounded-xl border shadow-sm transition-all hover:shadow-md relative",
         (status === 'MISSED' || isFailed) && "bg-gray-50 opacity-75 border-gray-200"
       )}
     >
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start justify-between">
+        <div className="flex-1 pr-4">
           <h4 className={cn(
             "font-medium transition-all text-base",
             isDone && "text-gray-400 line-through",
@@ -124,7 +152,7 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
            {isProcessing ? (
              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
            ) : (
@@ -132,14 +160,12 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
                {/* 1. EMPTY STATE (No Log) */}
                {!status && (
                  <>
-                   {/* ❌ Only show MISS button if NOT Windowed */}
                    {!isWindowed && (
                      <button onClick={handleMarkMissed} className="text-gray-200 hover:text-red-400 transition-colors p-1">
                        <XCircle className="h-8 w-8 stroke-[1.5]" />
                      </button>
                    )}
                    
-                   {/* ✅ DONE Button */}
                    <button onClick={handleMarkDone} className="text-gray-200 hover:text-black transition-colors p-1">
                      <Circle className="h-10 w-10 stroke-[1.5]" />
                    </button>
@@ -160,7 +186,7 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
                  </button>
                )}
 
-               {/* 4. FAILED (System Generated - Window Expired) */}
+               {/* 4. FAILED (System Generated) */}
                {isFailed && (
                  <div className="flex items-center gap-1 text-red-500 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">
                    <AlertCircle className="h-4 w-4" />
@@ -169,6 +195,34 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
                )}
              </>
            )}
+
+           {/* 👇 EDIT / DELETE MENU */}
+           <div className="relative ml-1">
+             <button 
+                onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} 
+                className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 transition-colors"
+             >
+               <MoreVertical className="h-4 w-4" />
+             </button>
+             
+             {isMenuOpen && (
+               <div className="absolute right-0 top-8 bg-white shadow-xl border border-gray-100 rounded-lg overflow-hidden z-20 min-w-[120px] animate-in fade-in zoom-in-95">
+                 <button 
+                   onClick={() => { openEditModal('HABIT', habit); setIsMenuOpen(false); }}
+                   className="w-full text-left px-4 py-2.5 text-xs font-medium hover:bg-gray-50 flex items-center gap-2 text-gray-700"
+                 >
+                   <Edit2 className="h-3 w-3" /> Edit
+                 </button>
+                 <button 
+                   onClick={handleDelete}
+                   className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
+                 >
+                   <Trash2 className="h-3 w-3" /> Delete
+                 </button>
+               </div>
+             )}
+           </div>
+
         </div>
       </div>
 

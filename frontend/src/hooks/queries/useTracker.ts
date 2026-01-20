@@ -122,3 +122,110 @@ export const useCompleteGoal = () => {
     },
   });
 };
+
+
+// 9. Fetch Single Goal
+export const useGoal = (id: string) => {
+  return useQuery({
+    queryKey: ['goal', id],
+    queryFn: async () => {
+      const { data } = await api.get<Goal>(`/goals/${id}/`);
+      return data;
+    },
+    enabled: !!id, // Only fetch if ID exists
+  });
+};
+
+
+// ... inside useTracker.ts
+
+// --- HABIT MUTATIONS ---
+
+export const useEditHabit = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: any }) => {
+      const { data } = await api.patch(`/habits/${id}/`, payload);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+};
+
+export const useDeleteHabit = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/habits/${id}/`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+};
+
+// --- GOAL MUTATIONS ---
+
+export const useEditGoal = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: any }) => {
+      const { data } = await api.patch(`/goals/${id}/`, payload);
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: ['goal', data.id] });
+    },
+  });
+};
+
+export const useDeleteGoal = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/goals/${id}/`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+};
+
+// Add this to your existing hooks
+export const useHabit = (id: string) => {
+  return useQuery({
+    queryKey: ['habit', id],
+    queryFn: async () => {
+      const { data } = await api.get<Habit>(`/habits/${id}/`);
+      return data;
+    },
+    enabled: !!id,
+  });
+};
+
+// Also ensure useHabits (plural) exists for the list page if you haven't already
+export const useHabits = () => {
+  return useQuery({
+    queryKey: ['habits'],
+    queryFn: async () => {
+      const { data } = await api.get<Habit[]>('/habits/');
+      return data;
+    },
+  });
+};
+
+export const useDashboard = (date: string) => {
+  return useQuery({
+    queryKey: ['dashboard', date],
+    queryFn: async () => {
+      const { data } = await api.get(`/dashboard/${date}/`);
+      return data;
+    },
+    enabled: !!date, // Only run if date is provided
+  });
+};

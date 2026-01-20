@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import axios from 'axios'; // <--- Use direct axios, not our 'api' wrapper
+import axios from 'axios'; 
+import Cookies from 'js-cookie'; // 👈 IMPORT THIS
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -15,18 +16,23 @@ export default function LoginPage() {
     setError('');
 
     try {
-      // 👇 We explicitly point to the correct Auth URL here
       const res = await axios.post('http://localhost:8000/api/auth/login/', { 
         username, 
         password 
       });
       
-      // Save Token
-      localStorage.setItem('access_token', res.data.access);
-      localStorage.setItem('refresh_token', res.data.refresh);
+      const { access, refresh } = res.data;
+
+      // 1. Save to LocalStorage (For your Client-side API calls)
+      localStorage.setItem('accessToken', access);
+      localStorage.setItem('refreshToken', refresh);
       
-      // Redirect
-      router.push('/today');
+      // 2. ✅ SAVE TO COOKIE (For the Middleware)
+      // This stops the "Today button log out" bug
+      Cookies.set('accessToken', access, { expires: 7, path: '/' });
+
+      // 3. Redirect to Root (Dashboard)
+      router.push('/');
       
     } catch (err) {
       console.error(err);
