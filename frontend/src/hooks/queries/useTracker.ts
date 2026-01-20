@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
-import { DashboardData } from '@/types';
+import { DashboardData, Goal, Habit } from '@/types';
 import { format } from 'date-fns';
 
 // 1. Fetch Dashboard
