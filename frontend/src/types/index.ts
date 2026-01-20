@@ -17,6 +17,8 @@ export interface Habit {
   linked_goal_name?: string;
   is_active: boolean;
   linked_goal_is_completed?: boolean;
+  logs?: HabitLog[];
+  created_at: string;
   today_log?: {
     id: string;
     status: 'DONE' | 'MISSED' | 'FAILED' | 'PARTIAL' | 'RESISTED';
