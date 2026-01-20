@@ -1,269 +1,237 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
 import { 
-  useGoal, 
-  useCompleteGoal, 
-  useLogGoalProgress, 
-  useDeleteGoal 
-} from '@/hooks/queries/useTracker';
-import { useUIStore } from '@/hooks/stores/useUIStore';
-import { format, parseISO, differenceInDays } from 'date-fns';
-import { 
-  ArrowLeft, Trophy, Calendar, TrendingUp, Clock, 
-  CheckCircle2, Loader2, X, Trash2, Edit2 
+  ArrowLeft, Calendar, Target, TrendingUp, CheckCircle2, 
+  Sparkles, Loader2, PlayCircle, BarChart3, AlertCircle 
 } from 'lucide-react';
+import api from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { GoalProgress } from '@/types';
 
 export default function GoalDetailPage() {
-  const router = useRouter();
   const params = useParams();
-  const goalId = params.id as string;
+  // Safe access: params might be null initially
+  const id = params?.id; 
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
-  // Hooks
-  const { data: goal, isLoading } = useGoal(goalId);
-  const completeGoal = useCompleteGoal();
-  const logProgress = useLogGoalProgress();
-  const deleteGoal = useDeleteGoal(); // 👈 New Hook
-  const { openEditModal, openConfirm } = useUIStore(); // 👈 Access Store
+  // 🛡️ GUARD: Only run query if ID is a valid string
+  // This stops the "/api/v1/goals/undefined/" 404 error
+  const isValidId = typeof id === 'string' && id !== 'undefined';
 
-  // State
-  const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
-  const [completionNote, setCompletionNote] = useState('');
-  const [newLogNote, setNewLogNote] = useState('');
+  // 1. Fetch Goal Details
+  const { data: goal, isLoading } = useQuery({
+    queryKey: ['goal', id],
+    queryFn: async () => {
+      const res = await api.get(`/goals/${id}/`);
+      return res.data;
+    },
+    // 👇 CRITICAL FIX: Don't fetch if ID is bad
+    enabled: isValidId, 
+    retry: false // Don't retry 404s
+  });
 
-  if (isLoading) {
-    return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-gray-400" /></div>;
-  }
+  // 2. Mutation: Generate AI Insight
+  const generateInsight = useMutation({
+    mutationFn: async () => {
+      const res = await api.post(`/ai/goals/${id}/insight/`);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['goal', id], (old: any) => ({
+        ...old,
+        ai_insight: data
+      }));
+      queryClient.invalidateQueries({ queryKey: ['goal', id] });
+    }
+  });
 
-  if (!goal) return <div className="p-4">Goal not found</div>;
+  // Loading State
+  if (isLoading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-gray-400" /></div>;
+  
+  // Error / Not Found State
+  if (!isValidId || !goal) return (
+    <div className="flex flex-col items-center justify-center min-h-[50vh] text-gray-400">
+      <AlertCircle className="h-8 w-8 mb-2 opacity-50" />
+      <p>Goal not found</p>
+      <button onClick={() => router.push('/dashboard')} className="mt-4 text-sm text-black underline">
+        Return to Dashboard
+      </button>
+    </div>
+  );
 
-  const daysActive = goal.created_at 
-    ? differenceInDays(new Date(), parseISO(goal.created_at)) 
-    : 0;
-
-  // Handlers
-  const handleComplete = async () => {
-    await completeGoal.mutateAsync({ id: goal.id, note: completionNote });
-    setIsCompleteModalOpen(false);
-  };
-
-  const handleDelete = () => {
-    openConfirm({
-      title: "Delete Goal?",
-      message: "Are you sure? This will delete the goal and all associated momentum logs. Linked habits will be unlinked.",
-      actionLabel: "Delete Goal",
-      onConfirm: async () => {
-        await deleteGoal.mutateAsync(goal.id);
-        router.push('/goals'); // Redirect to list after delete
-      }
-    });
-  };
-
-  const handleLogMomentum = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await logProgress.mutateAsync({
-      goal_id: goal.id,
-      date: format(new Date(), 'yyyy-MM-dd'),
-      moved_forward: true,
-      note: newLogNote
-    });
-    setNewLogNote('');
-  };
+  const logs = goal.progress_logs || [];
+  const completed = !!goal.completed_at;
 
   return (
-    <div className="max-w-md mx-auto min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-gray-50 pb-20">
       
-      {/* --- HEADER --- */}
-      <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.back()} className="p-2 -ml-2 hover:bg-gray-100 rounded-full">
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <span className="font-semibold text-sm">Goal Details</span>
-        </div>
-
-        {/* 👇 ACTION BUTTONS */}
-        <div className="flex items-center gap-1">
-          <button 
-            onClick={() => openEditModal('GOAL', goal)}
-            className="p-2 text-gray-500 hover:bg-gray-100 rounded-full"
-          >
-            <Edit2 className="h-4 w-4" />
-          </button>
-          <button 
-            onClick={handleDelete}
-            className="p-2 text-red-500 hover:bg-red-50 rounded-full"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+      {/* HEADER */}
+      <div className="bg-white border-b px-4 py-4 sticky top-0 z-10 flex items-center gap-3">
+        <button onClick={() => router.back()} className="p-2 -ml-2 hover:bg-gray-100 rounded-full">
+          <ArrowLeft className="h-5 w-5 text-gray-600" />
+        </button>
+        <div className="flex-1">
+          <h1 className="font-bold text-lg leading-tight truncate">{goal.name}</h1>
+          <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+            <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+              {goal.category}
+            </span>
+            <span>•</span>
+            <span>{format(new Date(goal.created_at), 'MMM d, yyyy')}</span>
+          </div>
         </div>
       </div>
 
-      <div className="p-4 space-y-6">
+      <div className="p-4 space-y-6 max-w-md mx-auto">
         
-        {/* --- HERO CARD --- */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
-          {goal.is_completed && (
-            <div className="absolute top-0 right-0 bg-green-100 text-green-700 px-3 py-1 text-xs font-bold rounded-bl-xl">
-              COMPLETED
+        {/* 📊 STATUS CARD */}
+        <div className="bg-white p-5 rounded-2xl border shadow-sm">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <div className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-1">Status</div>
+              <div className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold",
+                completed ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
+              )}>
+                {completed ? <CheckCircle2 className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
+                {completed ? "Completed" : "In Progress"}
+              </div>
             </div>
-          )}
-          
-          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
-            {goal.category || 'General'}
-          </div>
-          <h1 className="text-2xl font-bold mb-4">{goal.name}</h1>
-          
-          <div className="flex gap-4 text-sm text-gray-600">
-            <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-lg">
-              <Calendar className="h-4 w-4 text-gray-400" />
-              <span>{daysActive} days active</span>
-            </div>
-            <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-lg">
-              <TrendingUp className="h-4 w-4 text-gray-400" />
-              <span>{goal.logs?.length || 0} momentum logs</span>
-            </div>
-          </div>
-        </div>
-
-        {/* --- COMPLETION SUMMARY (If Completed) --- */}
-        {goal.is_completed && goal.completion_note && (
-          <div className="bg-green-50 border border-green-100 p-4 rounded-xl">
-            <div className="flex items-center gap-2 mb-2 text-green-800 font-semibold text-sm">
-              <Trophy className="h-4 w-4" /> Completion Reflection
-            </div>
-            <p className="text-green-900 text-sm italic">"{goal.completion_note}"</p>
-            <div className="mt-2 text-xs text-green-600">
-              Completed on {goal.completed_at && format(parseISO(goal.completed_at), 'MMMM d, yyyy')}
-            </div>
-          </div>
-        )}
-
-        {/* --- EVIDENCE HISTORY --- */}
-        <div>
-          <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Clock className="h-4 w-4" /> Evidence History
-          </h3>
-          
-          {/* MANUAL LOG INPUT */}
-          {!goal.is_completed && (
-            <div className="mb-6 bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
-                <form onSubmit={handleLogMomentum} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newLogNote}
-                    onChange={(e) => setNewLogNote(e.target.value)}
-                    placeholder="Add a note (optional)..."
-                    className="flex-1 bg-gray-50 border-transparent focus:bg-white focus:border-gray-200 rounded-lg px-3 py-2 text-sm outline-none border transition-all"
-                  />
-                  <button 
-                    type="submit"
-                    disabled={logProgress.isPending}
-                    className="bg-black text-white px-4 rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center gap-2 text-xs font-bold"
-                  >
-                    {logProgress.isPending ? <Loader2 className="h-3 w-3 animate-spin"/> : <TrendingUp className="h-3 w-3" />}
-                    Log Momentum
-                  </button>
-                </form>
-            </div>
-          )}
-
-          <div className="space-y-0 relative pl-2">
-            {/* Vertical Line */}
-            <div className="absolute left-[7px] top-2 bottom-4 w-0.5 bg-gray-200"></div>
-
-            {goal.logs && goal.logs.length > 0 ? (
-              goal.logs.map((log: GoalProgress) => (
-                <div key={log.id} className="relative pl-6 pb-6 last:pb-0 group">
-                  {/* Dot */}
-                  <div className="absolute left-0 top-1.5 h-4 w-4 rounded-full bg-white border-4 border-gray-300 group-hover:border-black transition-colors z-10"></div>
-                  
-                  <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm group-hover:shadow-md transition-all">
-                    <div className="flex justify-between items-start mb-1">
-                      <span className="text-xs font-bold text-gray-500">
-                        {format(parseISO(log.date), 'MMM d, yyyy')}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-800">
-                      {log.note || <span className="text-gray-400 italic">Momentum logged</span>}
-                    </p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-8 text-gray-400 text-sm bg-white rounded-xl border border-dashed">
-                No momentum recorded yet.<br/>Link a habit or log manually to start building history.
+            {completed && (
+              <div className="text-right">
+                 <div className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-1">Finished</div>
+                 <div className="font-medium text-sm">{format(new Date(goal.completed_at), 'MMM d, yyyy')}</div>
               </div>
             )}
           </div>
+
+          {/* Simple Activity Graph */}
+          {logs.length > 0 ? (
+             <div className="mt-6">
+                <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+                   <TrendingUp className="h-3 w-3" /> Momentum History
+                </div>
+                <div className="flex items-end gap-1 h-12 w-full">
+                  {logs.slice(-20).map((log: any, i: number) => (
+                    <div 
+                      key={i} 
+                      className={cn(
+                        "flex-1 rounded-t-sm opacity-80",
+                        log.source_habit ? "bg-blue-400" : "bg-indigo-400"
+                      )}
+                      style={{ height: '60%' }} 
+                      title={`${log.date}: ${log.note}`}
+                    ></div>
+                  ))}
+                </div>
+             </div>
+          ) : (
+             <div className="mt-4 p-4 bg-gray-50 rounded-xl text-center text-xs text-gray-400 italic">
+               No progress logged yet.
+             </div>
+          )}
         </div>
 
-        {/* --- FOOTER ACTION (Only if Active) --- */}
-        {!goal.is_completed && (
-          <div className="pt-8 pb-4">
-            <button
-              onClick={() => setIsCompleteModalOpen(true)}
-              className="w-full group flex items-center justify-center gap-2 text-gray-400 hover:text-green-600 hover:bg-green-50 py-3 rounded-xl transition-all text-sm font-medium border border-transparent hover:border-green-100"
-            >
-              <Trophy className="h-4 w-4" />
-              Mark Goal as Completed
-            </button>
+        {/* 🤖 AI INSIGHT SECTION */}
+        {completed && (
+          <div className="space-y-3">
+             <div className="flex items-center gap-2 px-1">
+                <Sparkles className="h-4 w-4 text-purple-600" />
+                <h3 className="font-bold text-gray-900">AI Retrospective</h3>
+             </div>
+             
+             <div className="bg-gradient-to-br from-white to-purple-50 p-1 rounded-2xl border border-purple-100 shadow-sm overflow-hidden relative">
+               
+               {goal.ai_insight ? (
+                 // HAS INSIGHT
+                 <div className="p-5 animate-in fade-in">
+                    <p className="text-gray-800 leading-relaxed text-sm font-medium">
+                      {goal.ai_insight.overview}
+                    </p>
+                    <div className="my-4 border-t border-purple-100"></div>
+                    {goal.ai_insight.patterns?.length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider">Key Patterns</h4>
+                        <ul className="space-y-2">
+                          {goal.ai_insight.patterns.map((pat: string, i: number) => (
+                            <li key={i} className="flex gap-2.5 text-xs text-gray-600 bg-white/80 p-2.5 rounded-lg shadow-sm border border-purple-50">
+                              <span className="text-purple-500 font-bold">•</span> {pat}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {goal.ai_insight.reflection && (
+                       <div className="mt-4 bg-purple-100/50 p-3 rounded-xl border border-purple-100">
+                         <h4 className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                           <Target className="h-3 w-3" /> Strategic Takeaway
+                         </h4>
+                         <p className="text-xs text-purple-900 italic">"{goal.ai_insight.reflection}"</p>
+                       </div>
+                    )}
+                 </div>
+               ) : (
+                 // NO INSIGHT
+                 <div className="p-8 text-center bg-white">
+                    <div className="h-12 w-12 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <BarChart3 className="h-6 w-6" />
+                    </div>
+                    <h4 className="font-bold text-gray-900 mb-1">Analyze your Journey</h4>
+                    <p className="text-xs text-gray-500 mb-5 max-w-[200px] mx-auto">
+                      Let AI find patterns in your momentum and consistency.
+                    </p>
+                    <button 
+                      onClick={() => generateInsight.mutate()}
+                      disabled={generateInsight.isPending}
+                      className="bg-black text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2 mx-auto disabled:opacity-70 disabled:scale-100"
+                    >
+                      {generateInsight.isPending ? (
+                        <><Loader2 className="h-4 w-4 animate-spin"/> Analyzing...</>
+                      ) : (
+                        <><Sparkles className="h-4 w-4"/> Generate Insight</>
+                      )}
+                    </button>
+                    {generateInsight.isError && (
+                      <div className="mt-4 flex items-center justify-center gap-1 text-xs text-red-500">
+                        <AlertCircle className="h-3 w-3" /> Analysis failed.
+                      </div>
+                    )}
+                 </div>
+               )}
+             </div>
           </div>
         )}
-      </div>
 
-      {/* --- COMPLETION MODAL --- */}
-      {isCompleteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10">
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">Complete Goal?</h2>
-                  <p className="text-sm text-gray-500 mt-1">This will archive "{goal.name}" and save your progress history.</p>
+        {/* 📋 PROGRESS LOGS */}
+        <div className="space-y-3 pt-2">
+          <h3 className="font-bold text-gray-900 px-1">Detailed Logs</h3>
+          <div className="space-y-3">
+            {logs.map((log: any) => (
+              <div key={log.id} className="bg-white p-3 rounded-xl border flex gap-3">
+                <div className="flex flex-col items-center">
+                   <div className="text-[10px] font-bold text-gray-400 uppercase">
+                     {format(new Date(log.date), 'MMM')}
+                   </div>
+                   <div className="text-lg font-bold leading-none">
+                     {format(new Date(log.date), 'd')}
+                   </div>
                 </div>
-                <button onClick={() => setIsCompleteModalOpen(false)} className="text-gray-400 hover:text-black">
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="flex-1 border-l pl-3 border-gray-100">
+                   <p className="text-sm text-gray-800">{log.note || "Progress recorded"}</p>
+                   {log.source_habit && (
+                     <div className="mt-1 inline-flex items-center gap-1 text-[10px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">
+                       <CheckCircle2 className="h-3 w-3" /> via {log.source_habit.name}
+                     </div>
+                   )}
+                </div>
               </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Final Reflection (Optional)
-                </label>
-                <textarea
-                  value={completionNote}
-                  onChange={(e) => setCompletionNote(e.target.value)}
-                  placeholder="What did you learn? How do you feel?"
-                  className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-black outline-none resize-none text-sm bg-gray-50"
-                  rows={3}
-                  autoFocus
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setIsCompleteModalOpen(false)}
-                  className="flex-1 py-3 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleComplete}
-                  disabled={completeGoal.isPending}
-                  className="flex-1 bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {completeGoal.isPending ? <Loader2 className="h-4 w-4 animate-spin"/> : <CheckCircle2 className="h-4 w-4" />}
-                  Confirm Completion
-                </button>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

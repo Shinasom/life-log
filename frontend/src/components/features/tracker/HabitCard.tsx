@@ -29,7 +29,7 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
   const deleteHabit = useDeleteHabit();
   
   // Stores
-  const { openEditModal, openConfirm } = useUIStore(); // 👈 Added openConfirm
+  const { openEditModal, openConfirm } = useUIStore(); 
 
   // Habit Data
   const log = habit.today_log;
@@ -100,21 +100,24 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
     setShowGoalPrompt(false);
   };
 
+  // 👇 UPDATED HANDLER: Sends source_habit_id
   const handleLogMomentum = () => {
     if (!habit.linked_goal) return;
+    
     logGoal.mutate({
       goal_id: habit.linked_goal,
       date: format(selectedDate, 'yyyy-MM-dd'),
       moved_forward: true,
-      note: bridgeNote || `Momentum via habit: ${habit.name}` 
+      note: bridgeNote, // Send the user's note (or empty string)
+      source_habit_id: habit.id // 👈 CRITICAL: Links momentum to this habit
     });
+
     setShowGoalPrompt(false); 
     setBridgeNote('');
   };
 
-  // --- DELETE HANDLER (NEW) ---
   const handleDelete = () => {
-    setIsMenuOpen(false); // Close menu immediately
+    setIsMenuOpen(false); 
     openConfirm({
       title: "Delete Habit?",
       message: `Are you sure you want to delete "${habit.name}"? This will permanently remove the habit and all its history.`,
@@ -196,7 +199,7 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
              </>
            )}
 
-           {/* 👇 EDIT / DELETE MENU */}
+           {/* MENU */}
            <div className="relative ml-1">
              <button 
                 onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} 
@@ -226,7 +229,7 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
         </div>
       </div>
 
-      {/* 🌉 BRIDGE POPUP (Unchanged) */}
+      {/* 🌉 BRIDGE POPUP */}
       {showGoalPrompt && isDone && (
         <div className="mt-4 bg-gray-900 text-white p-4 rounded-xl shadow-xl animate-in slide-in-from-top-2">
           <div className="flex items-start justify-between mb-3">
@@ -251,7 +254,7 @@ export default function HabitCard({ habit, selectedDate }: HabitCardProps) {
         </div>
       )}
 
-      {/* NOTES (Unchanged) */}
+      {/* NOTES */}
       {status && !showGoalPrompt && !isFailed && (
         <div className="mt-2 animate-in fade-in pl-1">
            {!isNoteOpen ? (

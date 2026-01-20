@@ -1,100 +1,234 @@
 'use client';
 
+import { useParams, useRouter } from 'next/navigation';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
+import { 
+  ArrowLeft, Calendar, Target, TrendingUp, CheckCircle2, 
+  Sparkles, Loader2, PlayCircle, BarChart3, AlertCircle 
+} from 'lucide-react';
+import api from '@/lib/api';
+import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useGoals } from '@/hooks/queries/useTracker';
-import { Loader2, Target, CheckCircle2, Clock, ChevronRight } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
 
-export default function GoalsPage() {
-  const { data: goals, isLoading } = useGoals();
+export default function GoalDetailPage() {
+  const { id } = useParams();
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
-  if (isLoading) {
-    return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-gray-400"/></div>;
-  }
+  // 1. Fetch Goal Details
+  const { data: goal, isLoading } = useQuery({
+    queryKey: ['goal', id],
+    queryFn: async () => {
+      const res = await api.get(`/goals/${id}/`);
+      return res.data;
+    }
+  });
 
-  const activeGoals = goals?.filter((g: any) => g.is_active && !g.is_completed) || [];
-  const completedGoals = goals?.filter((g: any) => g.is_completed) || [];
+  // 2. Mutation: Generate AI Insight
+  const generateInsight = useMutation({
+    mutationFn: async () => {
+      // 👇 Calling the new dedicated AI app endpoint
+      const res = await api.post(`/ai/goals/${id}/insight/`);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      // Update the cache immediately with the new insight
+      queryClient.setQueryData(['goal', id], (old: any) => ({
+        ...old,
+        ai_insight: data // Optimistic update
+      }));
+      queryClient.invalidateQueries({ queryKey: ['goal', id] });
+    }
+  });
+
+  if (isLoading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-gray-400" /></div>;
+  if (!goal) return <div className="p-10 text-center">Goal not found</div>;
+
+  const logs = goal.progress_logs || [];
+  const completed = !!goal.completed_at;
 
   return (
-    <div className="space-y-8 pt-4 pb-20">
+    <div className="min-h-screen bg-gray-50 pb-20">
       
-      <div className="flex items-center justify-between px-1">
-        <h1 className="text-2xl font-bold">Your Map</h1>
-        <div className="text-sm text-gray-500 font-medium">{activeGoals.length} Active</div>
-      </div>
-
-      {/* ACTIVE GOALS */}
-      <div className="space-y-4">
-        {activeGoals.length === 0 ? (
-           <div className="text-center py-10 text-gray-400 border border-dashed rounded-xl">No active goals.</div>
-        ) : (
-          activeGoals.map((goal: any) => (
-            // 🔗 LINK WRAPPER: Makes the whole card clickable
-            <Link href={`/goals/${goal.id}`} key={goal.id} className="block group">
-              <div className="bg-white border rounded-xl shadow-sm group-hover:shadow-md transition-all overflow-hidden relative">
-                
-                {/* Hover Indicator */}
-                <div className="absolute right-4 top-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <ChevronRight className="text-gray-400" />
-                </div>
-
-                {/* Header */}
-                <div className="p-5 border-b bg-gray-50/50 flex justify-between items-start">
-                  <div>
-                    <h3 className="font-bold text-lg mb-1 group-hover:text-blue-600 transition-colors">{goal.name}</h3>
-                    <span className="text-xs bg-black text-white px-2 py-0.5 rounded-md font-medium">{goal.category || 'General'}</span>
-                  </div>
-                  <div className="bg-white p-2 rounded-full border shadow-sm mr-6">
-                     <Target className="text-black h-5 w-5" />
-                  </div>
-                </div>
-
-                {/* Latest Update Preview (Only show last 1 log to keep list clean) */}
-                <div className="p-4 bg-white">
-                  {goal.logs && goal.logs.length > 0 ? (
-                    <div className="flex items-start gap-3 text-sm text-gray-600">
-                      <Clock className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
-                      <div>
-                        <span className="text-xs font-bold text-gray-900 block mb-0.5">
-                          Last: {format(parseISO(goal.logs[0].date), 'MMM d')}
-                        </span>
-                        <span className="line-clamp-1 text-gray-500">
-                          {goal.logs[0].note || "Progress recorded"}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-400 italic pl-1">No history yet. Tap to view details.</div>
-                  )}
-                </div>
-
-              </div>
-            </Link>
-          ))
-        )}
-      </div>
-
-      {/* COMPLETED GOALS */}
-      {completedGoals.length > 0 && (
-        <div className="space-y-4 pt-8 border-t">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest px-1">Completed History</h3>
-          {completedGoals.map((goal: any) => (
-            <Link href={`/goals/${goal.id}`} key={goal.id} className="block group">
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center justify-between group-hover:bg-white group-hover:shadow-sm transition-all">
-                <div className="flex items-center gap-3 opacity-70 group-hover:opacity-100">
-                  <CheckCircle2 className="text-green-600 h-5 w-5" />
-                  <span className="font-medium line-through text-gray-500 group-hover:text-gray-800 transition-colors">
-                    {goal.name}
-                  </span>
-                </div>
-                <div className="text-xs text-gray-400">
-                   {goal.completed_at ? format(parseISO(goal.completed_at), 'MMM d, yyyy') : 'Done'}
-                </div>
-              </div>
-            </Link>
-          ))}
+      {/* HEADER */}
+      <div className="bg-white border-b px-4 py-4 sticky top-0 z-10 flex items-center gap-3">
+        <button onClick={() => router.back()} className="p-2 -ml-2 hover:bg-gray-100 rounded-full">
+          <ArrowLeft className="h-5 w-5 text-gray-600" />
+        </button>
+        <div className="flex-1">
+          <h1 className="font-bold text-lg leading-tight truncate">{goal.name}</h1>
+          <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+            <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+              {goal.category}
+            </span>
+            <span>•</span>
+            <span>{format(new Date(goal.created_at), 'MMM d, yyyy')}</span>
+          </div>
         </div>
-      )}
+      </div>
+
+      <div className="p-4 space-y-6 max-w-md mx-auto">
+        
+        {/* 📊 STATUS CARD */}
+        <div className="bg-white p-5 rounded-2xl border shadow-sm">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <div className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-1">Status</div>
+              <div className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold",
+                completed ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
+              )}>
+                {completed ? <CheckCircle2 className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
+                {completed ? "Completed" : "In Progress"}
+              </div>
+            </div>
+            {completed && (
+              <div className="text-right">
+                 <div className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-1">Finished</div>
+                 <div className="font-medium text-sm">{format(new Date(goal.completed_at), 'MMM d, yyyy')}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Simple Activity Graph */}
+          {logs.length > 0 ? (
+             <div className="mt-6">
+                <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+                   <TrendingUp className="h-3 w-3" /> Momentum History
+                </div>
+                <div className="flex items-end gap-1 h-12 w-full">
+                  {logs.slice(-20).map((log: any, i: number) => (
+                    <div 
+                      key={i} 
+                      className={cn(
+                        "flex-1 rounded-t-sm opacity-80",
+                        log.source_habit ? "bg-blue-400" : "bg-indigo-400" // Different color for habit vs manual
+                      )}
+                      style={{ height: '60%' }} // Simple visual, real chart would be better
+                      title={`${log.date}: ${log.note}`}
+                    ></div>
+                  ))}
+                </div>
+             </div>
+          ) : (
+             <div className="mt-4 p-4 bg-gray-50 rounded-xl text-center text-xs text-gray-400 italic">
+               No progress logged yet.
+             </div>
+          )}
+        </div>
+
+        {/* 🤖 AI INSIGHT SECTION (Only if Completed) */}
+        {completed && (
+          <div className="space-y-3">
+             <div className="flex items-center gap-2 px-1">
+                <Sparkles className="h-4 w-4 text-purple-600" />
+                <h3 className="font-bold text-gray-900">AI Retrospective</h3>
+             </div>
+             
+             <div className="bg-gradient-to-br from-white to-purple-50 p-1 rounded-2xl border border-purple-100 shadow-sm overflow-hidden relative">
+               
+               {goal.ai_insight ? (
+                 // --- STATE A: HAS INSIGHT ---
+                 <div className="p-5 animate-in fade-in">
+                    
+                    {/* Overview */}
+                    <p className="text-gray-800 leading-relaxed text-sm font-medium">
+                      {goal.ai_insight.overview}
+                    </p>
+
+                    <div className="my-4 border-t border-purple-100"></div>
+
+                    {/* Patterns */}
+                    {goal.ai_insight.patterns?.length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider">Key Patterns</h4>
+                        <ul className="space-y-2">
+                          {goal.ai_insight.patterns.map((pat: string, i: number) => (
+                            <li key={i} className="flex gap-2.5 text-xs text-gray-600 bg-white/80 p-2.5 rounded-lg shadow-sm border border-purple-50">
+                              <span className="text-purple-500 font-bold">•</span> {pat}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Reflection */}
+                    {goal.ai_insight.reflection && (
+                       <div className="mt-4 bg-purple-100/50 p-3 rounded-xl border border-purple-100">
+                         <h4 className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                           <Target className="h-3 w-3" /> Strategic Takeaway
+                         </h4>
+                         <p className="text-xs text-purple-900 italic">
+                           "{goal.ai_insight.reflection}"
+                         </p>
+                       </div>
+                    )}
+                 </div>
+
+               ) : (
+                 // --- STATE B: NO INSIGHT (Generate Button) ---
+                 <div className="p-8 text-center bg-white">
+                    <div className="h-12 w-12 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <BarChart3 className="h-6 w-6" />
+                    </div>
+                    <h4 className="font-bold text-gray-900 mb-1">Analyze your Journey</h4>
+                    <p className="text-xs text-gray-500 mb-5 max-w-[200px] mx-auto">
+                      Let AI find patterns in your momentum and consistency.
+                    </p>
+                    
+                    <button 
+                      onClick={() => generateInsight.mutate()}
+                      disabled={generateInsight.isPending}
+                      className="bg-black text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2 mx-auto disabled:opacity-70 disabled:scale-100"
+                    >
+                      {generateInsight.isPending ? (
+                        <><Loader2 className="h-4 w-4 animate-spin"/> Analyzing...</>
+                      ) : (
+                        <><Sparkles className="h-4 w-4"/> Generate Insight</>
+                      )}
+                    </button>
+                    
+                    {generateInsight.isError && (
+                      <div className="mt-4 flex items-center justify-center gap-1 text-xs text-red-500">
+                        <AlertCircle className="h-3 w-3" />
+                        Analysis failed. Please try again.
+                      </div>
+                    )}
+                 </div>
+               )}
+             </div>
+          </div>
+        )}
+
+        {/* 📋 PROGRESS LOGS LIST */}
+        <div className="space-y-3 pt-2">
+          <h3 className="font-bold text-gray-900 px-1">Detailed Logs</h3>
+          <div className="space-y-3">
+            {logs.map((log: any) => (
+              <div key={log.id} className="bg-white p-3 rounded-xl border flex gap-3">
+                <div className="flex flex-col items-center">
+                   <div className="text-[10px] font-bold text-gray-400 uppercase">
+                     {format(new Date(log.date), 'MMM')}
+                   </div>
+                   <div className="text-lg font-bold leading-none">
+                     {format(new Date(log.date), 'd')}
+                   </div>
+                </div>
+                <div className="flex-1 border-l pl-3 border-gray-100">
+                   <p className="text-sm text-gray-800">{log.note || "Progress recorded"}</p>
+                   {log.source_habit && (
+                     <div className="mt-1 inline-flex items-center gap-1 text-[10px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">
+                       <CheckCircle2 className="h-3 w-3" /> via {log.source_habit.name}
+                     </div>
+                   )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
     </div>
   );
 }
