@@ -182,32 +182,44 @@ class LogGoalProgressView(APIView):
 class HabitViewSet(viewsets.ModelViewSet):
     serializer_class = HabitSerializer
     permission_classes = [IsAuthenticated]
-    def get_queryset(self): return Habit.objects.filter(user=self.request.user)
-    def perform_create(self, serializer): serializer.save(user=self.request.user)
 
+    def get_queryset(self):
+        # Prefetch logs to prevent N+1 queries
+        return Habit.objects.filter(user=self.request.user).prefetch_related('logs')
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+    # Use DetailSerializer (with logs) for 'retrieve' and 'list'
+    def get_serializer_class(self):
+        if self.action in ['retrieve', 'list']: 
+            return HabitDetailSerializer
+        return super().get_serializer_class()
+
+    # 👇 SINGLE, CORRECT ANALYZE ACTION
     @action(detail=True, methods=['get'])
     def analyze(self, request, pk=None):
         """
         GET /api/v1/habits/{id}/analyze/
         Triggers an AI analysis of the habit.
         """
+        # 1. Call service
         result = generate_habit_insight(pk, request.user)
+        
+        # 2. Safety check
+        if result is None:
+            return Response(
+                {"error": "Analysis failed to generate data."}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 3. Handle specific errors
         if "error" in result:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
         return Response(result)
-    
-    def get_serializer_class(self):
-        # Use DetailSerializer (which has logs) for BOTH 'retrieve' and 'list'
-        if self.action in ['retrieve', 'list']: 
-            return HabitDetailSerializer
-        return super().get_serializer_class()
-    
-    @action(detail=True, methods=['get'])
-    def analyze(self, request, pk=None):
-        # ... (keep this as is) ...
-        pass
 
-    # 👇 NEW Global System Analysis
+    # Global System Analysis
     @action(detail=False, methods=['get'])
     def global_insight(self, request):
         """
