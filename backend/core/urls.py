@@ -8,12 +8,11 @@ from rest_framework_simplejwt.views import (
 urlpatterns = [
     path('admin/', admin.site.urls),
     
-    # Auth Endpoints (Standard JWT)
-    path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # 1. 🔧 FIX: Move these to 'api/v1/auth/' to match your frontend API client
+    path('api/v1/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/v1/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
     # The Core App
     path('api/v1/', include('tracker.urls')),
-
     path('api/v1/auth/', include('users.urls')),
 ]

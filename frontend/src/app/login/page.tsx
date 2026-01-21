@@ -1,43 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import axios from 'axios'; 
-import Cookies from 'js-cookie'; // 👈 IMPORT THIS
+import Link from 'next/link';
+import { useLogin } from '@/hooks/queries/useAuth';
+import { Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const router = useRouter();
+  
+  // 1. Use the hook instead of raw axios
+  const login = useLogin();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-
-    try {
-      const res = await axios.post('http://localhost:8000/api/auth/login/', { 
-        username, 
-        password 
-      });
-      
-      const { access, refresh } = res.data;
-
-      // 1. Save to LocalStorage (For your Client-side API calls)
-      localStorage.setItem('accessToken', access);
-      localStorage.setItem('refreshToken', refresh);
-      
-      // 2. ✅ SAVE TO COOKIE (For the Middleware)
-      // This stops the "Today button log out" bug
-      Cookies.set('accessToken', access, { expires: 7, path: '/' });
-
-      // 3. Redirect to Root (Dashboard)
-      router.push('/');
-      
-    } catch (err) {
-      console.error(err);
-      setError('Invalid username or password');
-    }
+    login.mutate({ username, password });
   };
 
   return (
@@ -72,19 +49,30 @@ export default function LoginPage() {
             />
           </div>
 
-          {error && (
+          {/* Error Message Handling */}
+          {login.isError && (
             <div className="p-3 rounded-md bg-red-50 text-red-500 text-sm text-center border border-red-100">
-              {error}
+              {(login.error as any)?.response?.data?.detail || "Invalid username or password"}
             </div>
           )}
 
           <button
             type="submit"
-            className="w-full rounded-md bg-black py-2.5 text-white font-medium hover:bg-gray-800 transition shadow-sm"
+            disabled={login.isPending}
+            className="w-full flex justify-center items-center gap-2 rounded-md bg-black py-2.5 text-white font-medium hover:bg-gray-800 transition shadow-sm disabled:opacity-50"
           >
-            Sign In
+            {login.isPending ? <Loader2 className="animate-spin h-5 w-5" /> : 'Sign In'}
           </button>
         </form>
+
+        <div className="mt-6 text-center text-sm">
+          <p className="text-gray-500">
+            Don't have an account?{' '}
+            <Link href="/signup" className="font-bold text-black hover:underline">
+              Sign Up
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );
