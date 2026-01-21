@@ -47,11 +47,12 @@ class HabitSerializer(serializers.ModelSerializer):
             'frequency_config', 
             'tracking_mode', 
             'config', 
+            'is_active',  # 👈 ADD THIS FIELD!
             'linked_goal', 
             'linked_goal_name', 
-            # 👇 Keep this in the fields list
             'linked_goal_is_completed', 
-            'today_log'
+            'today_log',
+            'created_at' # Good to have for charts
         ]
 
     def get_today_log(self, obj):
@@ -93,3 +94,8 @@ class DashboardSerializer(serializers.Serializer):
     habits = HabitSerializer(many=True)
     goals = GoalSerializer(many=True)
     tasks = TaskSerializer(many=True)
+
+class HabitDetailSerializer(HabitSerializer):
+    logs = HabitLogSerializer(many=True, read_only=True)
+    class Meta(HabitSerializer.Meta):
+        fields = HabitSerializer.Meta.fields + ['logs']

@@ -1,3 +1,4 @@
+#backend/tracker/views.pys
 from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
@@ -7,11 +8,13 @@ from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action # 👈 Needed for custom actions
 
 from .models import Habit, HabitLog, Goal, GoalProgress, Task, DailyLog
 from .serializers import (
     DashboardSerializer, 
     HabitSerializer, 
+    HabitDetailSerializer, # 👈 Imported Correctly
     GoalSerializer, 
     TaskSerializer, 
     DailyLogSerializer,
@@ -19,8 +22,15 @@ from .serializers import (
     GoalProgressSerializer
 )
 from .services import evaluate_windowed_habits
-from ai_features.services import generate_goal_insight
 from ai_features.models import GoalInsight
+
+# 👇 CORRECTED IMPORT LOCATION (This fixes your error)
+from ai_features.services import (
+    generate_goal_insight, 
+    generate_habit_insight, 
+    generate_global_habit_insight
+)
+
 # ==========================================
 # 1. THE DASHBOARD (READ CORE + LOGIC ENGINE)
 # ==========================================
@@ -175,13 +185,49 @@ class HabitViewSet(viewsets.ModelViewSet):
     def get_queryset(self): return Habit.objects.filter(user=self.request.user)
     def perform_create(self, serializer): serializer.save(user=self.request.user)
 
+    @action(detail=True, methods=['get'])
+    def analyze(self, request, pk=None):
+        """
+        GET /api/v1/habits/{id}/analyze/
+        Triggers an AI analysis of the habit.
+        """
+        result = generate_habit_insight(pk, request.user)
+        if "error" in result:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+    
+    def get_serializer_class(self):
+        # Use DetailSerializer (which has logs) for BOTH 'retrieve' and 'list'
+        if self.action in ['retrieve', 'list']: 
+            return HabitDetailSerializer
+        return super().get_serializer_class()
+    
+    @action(detail=True, methods=['get'])
+    def analyze(self, request, pk=None):
+        # ... (keep this as is) ...
+        pass
+
+    # 👇 NEW Global System Analysis
+    @action(detail=False, methods=['get'])
+    def global_insight(self, request):
+        """
+        GET /api/v1/habits/global_insight/
+        Analyzes the interaction between ALL active habits.
+        """
+        result = generate_global_habit_insight(request.user)
+        if "error" in result:
+             return Response(result, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
 class GoalViewSet(viewsets.ModelViewSet):
     serializer_class = GoalSerializer
     queryset = Goal.objects.all()
 
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)
-
+    def perform_create(self, serializer):
+        # This automatically pulls the user from the request and saves it
+        serializer.save(user=self.request.user)
     # 👇 OVERRIDE THE RETRIEVE METHOD
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()

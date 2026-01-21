@@ -4,14 +4,17 @@ interface UIStore {
   selectedDate: Date;
   setSelectedDate: (date: Date) => void;
   
-  // Create/Edit Modal State
-  isGlobalAddOpen: boolean;
+  // --- CREATE / EDIT MODAL STATE ---
+  isCreateModalOpen: boolean; // Renamed from isGlobalAddOpen for clarity
+  activeModalType: 'HABIT' | 'GOAL' | null; // Renamed from editType
   itemToEdit: any | null; 
-  editType: 'HABIT' | 'GOAL' | null;
-  toggleGlobalAdd: () => void;
+  
+  // Actions
+  openCreateModal: (type?: 'HABIT' | 'GOAL') => void;
   openEditModal: (type: 'HABIT' | 'GOAL', item: any) => void;
+  closeCreateModal: () => void;
 
-  // 👇 NEW: Confirm Modal State
+  // --- CONFIRM MODAL STATE ---
   confirmConfig: {
     isOpen: boolean;
     title: string;
@@ -24,27 +27,37 @@ interface UIStore {
   closeConfirm: () => void;
 }
 
-export const useUIStore = create<UIStore>((set, get) => ({
+export const useUIStore = create<UIStore>((set) => ({
   selectedDate: new Date(),
   setSelectedDate: (date) => set({ selectedDate: date }),
   
-  isGlobalAddOpen: false,
+  // Initial State
+  isCreateModalOpen: false,
+  activeModalType: null,
   itemToEdit: null,
-  editType: null,
 
-  toggleGlobalAdd: () => set((state) => ({ 
-    isGlobalAddOpen: !state.isGlobalAddOpen,
-    itemToEdit: null,
-    editType: null 
-  })),
+  // Open for CREATING (Reset edit data)
+  openCreateModal: (type) => set({ 
+    isCreateModalOpen: true, 
+    activeModalType: type || 'HABIT',
+    itemToEdit: null 
+  }),
 
+  // Open for EDITING (Load item data)
   openEditModal: (type, item) => set({
-    isGlobalAddOpen: true,
-    editType: type,
+    isCreateModalOpen: true,
+    activeModalType: type,
     itemToEdit: item
   }),
 
-  // 👇 NEW: Confirm Logic
+  // Close Modal
+  closeCreateModal: () => set({ 
+    isCreateModalOpen: false,
+    activeModalType: null,
+    itemToEdit: null 
+  }),
+
+  // --- CONFIRM LOGIC (Kept as is) ---
   confirmConfig: {
     isOpen: false,
     title: '',

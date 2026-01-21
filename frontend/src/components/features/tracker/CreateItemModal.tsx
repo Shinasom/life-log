@@ -17,7 +17,13 @@ const DAYS_OF_WEEK = [
 ];
 
 export default function CreateItemModal() {
-  const { isGlobalAddOpen, toggleGlobalAdd, itemToEdit, editType } = useUIStore();
+  // 👇 UPDATED: Use the specific store selectors
+  const { 
+    isCreateModalOpen, 
+    closeCreateModal, 
+    itemToEdit, 
+    activeModalType 
+  } = useUIStore();
   
   // Mutations
   const createHabit = useCreateHabit();
@@ -45,13 +51,20 @@ export default function CreateItemModal() {
   // Goal State
   const [category, setCategory] = useState('');
 
-  // 🔄 EFFECT: Load Data when Editing
+  // 🔄 EFFECT: Load Data when Editing or Switch Mode
   useEffect(() => {
-    if (isGlobalAddOpen && itemToEdit) {
-      setMode(editType || 'HABIT');
+    if (!isCreateModalOpen) return;
+
+    // 1. Sync the Tab Mode (Habit vs Goal) from Store
+    if (activeModalType) {
+        setMode(activeModalType);
+    }
+
+    // 2. Load Edit Data
+    if (itemToEdit) {
       setName(itemToEdit.name);
       
-      if (editType === 'HABIT') {
+      if (activeModalType === 'HABIT') {
         setDescription(itemToEdit.description || '');
         setHabitType(itemToEdit.habit_type);
         setFrequency(itemToEdit.frequency);
@@ -66,8 +79,8 @@ export default function CreateItemModal() {
       } else {
         setCategory(itemToEdit.category || '');
       }
-    } else if (isGlobalAddOpen && !itemToEdit) {
-      // Reset form for "New" mode
+    } else {
+      // 3. Reset form for "New" mode
       setName('');
       setDescription('');
       setCategory('');
@@ -77,9 +90,8 @@ export default function CreateItemModal() {
       setSelectedDays([]);
       setWindowTarget(1);
       setWindowPeriod(7);
-      setMode('HABIT');
     }
-  }, [isGlobalAddOpen, itemToEdit, editType]);
+  }, [isCreateModalOpen, itemToEdit, activeModalType]);
 
 
   const toggleDay = (day: string) => {
@@ -130,43 +142,69 @@ export default function CreateItemModal() {
       }
     }
 
-    toggleGlobalAdd();
+    closeCreateModal(); // 👈 Use the new close function
   };
 
-  if (!isGlobalAddOpen) return null;
+  if (!isCreateModalOpen) return null;
   const isPending = createHabit.isPending || editHabit.isPending || createGoal.isPending || editGoal.isPending;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-10 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 max-h-[90vh] overflow-y-auto">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white z-10">
-          <h2 className="font-semibold text-lg">{itemToEdit ? 'Edit Item' : 'Create New'}</h2>
-          <button onClick={toggleGlobalAdd} className="p-2 hover:bg-gray-100 rounded-full">
+        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
+          <h2 className="font-black text-xl text-gray-900">
+            {itemToEdit ? `Edit ${mode === 'HABIT' ? 'Habit' : 'Goal'}` : 'Create New'}
+          </h2>
+          <button 
+            onClick={closeCreateModal} // 👈 Use updated handler
+            className="p-2 bg-gray-50 hover:bg-gray-100 rounded-full transition-colors"
+          >
             <X className="h-5 w-5 text-gray-500" />
           </button>
         </div>
 
         {/* Tabs (Only show if creating new) */}
         {!itemToEdit && (
-          <div className="flex p-2 gap-2 border-b bg-gray-50">
-            <button onClick={() => setMode('HABIT')} className={cn("flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2", mode === 'HABIT' ? "bg-white shadow text-black" : "text-gray-500")}>
+          <div className="flex p-2 gap-2 bg-gray-50/50">
+            <button 
+                onClick={() => setMode('HABIT')} 
+                className={cn(
+                    "flex-1 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2", 
+                    mode === 'HABIT' ? "bg-white text-black shadow-sm ring-1 ring-black/5" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                )}
+            >
               <Repeat className="h-4 w-4" /> Habit
             </button>
-            <button onClick={() => setMode('GOAL')} className={cn("flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2", mode === 'GOAL' ? "bg-white shadow text-black" : "text-gray-500")}>
+            <button 
+                onClick={() => setMode('GOAL')} 
+                className={cn(
+                    "flex-1 py-2.5 text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2", 
+                    mode === 'GOAL' ? "bg-white text-black shadow-sm ring-1 ring-black/5" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                )}
+            >
               <Target className="h-4 w-4" /> Goal
             </button>
           </div>
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-4 space-y-5">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
           
           {/* NAME */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{mode === 'HABIT' ? 'I want to...' : 'My Goal is to...'}</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name your item" className="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-black outline-none" autoFocus />
+            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+                {mode === 'HABIT' ? 'Habit Name' : 'Goal Name'}
+            </label>
+            <input 
+                type="text" 
+                value={name} 
+                onChange={(e) => setName(e.target.value)} 
+                placeholder={mode === 'HABIT' ? "e.g., Read 30 mins" : "e.g., Save $10k"} 
+                className="w-full p-3 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-black/5 transition-all outline-none font-medium placeholder:text-gray-400" 
+                autoFocus 
+            />
           </div>
 
           {/* === HABIT FIELDS === */}
@@ -174,16 +212,16 @@ export default function CreateItemModal() {
             <>
               {/* Type Switcher */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Habit Type</label>
-                <div className="flex bg-gray-100 p-1 rounded-lg">
-                  <button type="button" onClick={() => setHabitType('BUILD')} className={cn("flex-1 text-xs font-medium py-2 rounded-md transition-all", habitType === 'BUILD' ? "bg-white shadow text-green-600" : "text-gray-500")}>Build (Do more)</button>
-                  <button type="button" onClick={() => setHabitType('QUIT')} className={cn("flex-1 text-xs font-medium py-2 rounded-md transition-all", habitType === 'QUIT' ? "bg-white shadow text-red-600" : "text-gray-500")}>Quit (Do less)</button>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Type</label>
+                <div className="flex bg-gray-100 p-1 rounded-xl">
+                  <button type="button" onClick={() => setHabitType('BUILD')} className={cn("flex-1 text-xs font-bold py-2.5 rounded-lg transition-all", habitType === 'BUILD' ? "bg-white shadow text-green-600" : "text-gray-500")}>Build (Do more)</button>
+                  <button type="button" onClick={() => setHabitType('QUIT')} className={cn("flex-1 text-xs font-bold py-2.5 rounded-lg transition-all", habitType === 'QUIT' ? "bg-white shadow text-red-600" : "text-gray-500")}>Quit (Do less)</button>
                 </div>
               </div>
 
               {/* Frequency Engine */}
-              <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <div className="space-y-3 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                 <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase">
                     <CalendarClock className="h-4 w-4" /> Frequency
                  </div>
                  
@@ -193,7 +231,7 @@ export default function CreateItemModal() {
                         key={f} 
                         type="button" 
                         onClick={() => setFrequency(f as any)}
-                        className={cn("flex-1 text-xs py-1.5 rounded border transition-all", frequency === f ? "bg-black text-white border-black" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300")}
+                        className={cn("flex-1 text-xs font-bold py-2 rounded-lg border transition-all", frequency === f ? "bg-black text-white border-black" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300")}
                       >
                         {f === 'WINDOWED' ? 'Flexible' : f.charAt(0) + f.slice(1).toLowerCase()}
                       </button>
@@ -203,37 +241,42 @@ export default function CreateItemModal() {
                  {frequency === 'WEEKLY' && (
                    <div className="flex justify-between pt-2">
                      {DAYS_OF_WEEK.map((day) => (
-                       <button key={day.value} type="button" onClick={() => toggleDay(day.value)} className={cn("h-8 w-8 rounded-full text-xs font-bold flex items-center justify-center transition-all", selectedDays.includes(day.value) ? "bg-black text-white" : "bg-gray-200 text-gray-500 hover:bg-gray-300")}>{day.label}</button>
+                       <button key={day.value} type="button" onClick={() => toggleDay(day.value)} className={cn("h-8 w-8 rounded-full text-[10px] font-black flex items-center justify-center transition-all", selectedDays.includes(day.value) ? "bg-black text-white" : "bg-white border border-gray-200 text-gray-400 hover:border-gray-400")}>{day.label}</button>
                      ))}
                    </div>
                  )}
 
                  {frequency === 'WINDOWED' && (
-                   <div className="flex items-center gap-2 pt-2">
-                      <span className="text-sm text-gray-500">Do it</span>
-                      <input type="number" min="1" max="30" value={windowTarget} onChange={(e) => setWindowTarget(parseInt(e.target.value))} className="w-12 p-1 text-center border rounded bg-white" />
-                      <span className="text-sm text-gray-500">times in</span>
-                      <select value={windowPeriod} onChange={(e) => setWindowPeriod(parseInt(e.target.value))} className="p-1 border rounded bg-white text-sm">
-                        <option value="7">7 days</option>
-                        <option value="14">14 days</option>
-                        <option value="30">30 days</option>
+                   <div className="flex items-center gap-3 pt-2">
+                      <span className="text-sm font-medium text-gray-600">Do it</span>
+                      <input type="number" min="1" max="30" value={windowTarget} onChange={(e) => setWindowTarget(parseInt(e.target.value))} className="w-12 p-1.5 text-center border border-gray-200 rounded-lg bg-white font-bold" />
+                      <span className="text-sm font-medium text-gray-600">times every</span>
+                      <select value={windowPeriod} onChange={(e) => setWindowPeriod(parseInt(e.target.value))} className="p-1.5 border border-gray-200 rounded-lg bg-white text-sm font-bold">
+                        <option value="7">Week</option>
+                        <option value="14">2 Weeks</option>
+                        <option value="30">Month</option>
                       </select>
                    </div>
                  )}
               </div>
 
               {/* Description & Link */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2"><AlignLeft className="h-3 w-3" /> Description</label>
-                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-black outline-none resize-none" />
-              </div>
-              
-              <div>
-                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2"><LinkIcon className="h-3 w-3" /> Link to Goal</label>
-                 <select value={selectedGoalId} onChange={(e) => setSelectedGoalId(e.target.value)} className="w-full p-3 rounded-lg border border-gray-300 bg-white outline-none">
-                   <option value="">No link</option>
-                   {activeGoals.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                 </select>
+              <div className="space-y-4">
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-2">Description</label>
+                    <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full p-3 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-black/5 transition-all outline-none font-medium placeholder:text-gray-400 resize-none text-sm" placeholder="Why are you doing this?" />
+                </div>
+                
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-2">Linked Goal</label>
+                    <div className="relative">
+                        <LinkIcon className="absolute left-3 top-3.5 h-4 w-4 text-gray-400" />
+                        <select value={selectedGoalId} onChange={(e) => setSelectedGoalId(e.target.value)} className="w-full pl-9 p-3 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-black/5 outline-none text-sm font-medium appearance-none">
+                        <option value="">None (Standalone)</option>
+                        {activeGoals.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                        </select>
+                    </div>
+                </div>
                </div>
             </>
           )}
@@ -241,14 +284,18 @@ export default function CreateItemModal() {
           {/* === GOAL FIELDS === */}
           {mode === 'GOAL' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Health, Finance..." className="w-full p-3 rounded-lg border border-gray-300 outline-none" />
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Category</label>
+              <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Health, Finance..." className="w-full p-3 rounded-xl bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-black/5 transition-all outline-none font-medium placeholder:text-gray-400" />
             </div>
           )}
 
-          <button type="submit" disabled={isPending} className="w-full bg-black text-white py-3 rounded-lg font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-2 mt-2">
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {itemToEdit ? 'Save Changes' : (mode === 'HABIT' ? 'Create Habit' : 'Set Goal')}
+          <button 
+            type="submit" 
+            disabled={isPending} 
+            className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-900 disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg hover:shadow-xl transition-all transform active:scale-[0.98]"
+          >
+            {isPending && <Loader2 className="h-5 w-5 animate-spin" />}
+            {itemToEdit ? 'Save Changes' : (mode === 'HABIT' ? 'Start Habit' : 'Set Goal')}
           </button>
         </form>
       </div>

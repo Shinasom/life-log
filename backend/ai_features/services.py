@@ -2,8 +2,109 @@ import json
 import os
 from groq import Groq
 from django.conf import settings
-from tracker.models import Goal
+from tracker.models import Goal, Habit
 from .models import GoalInsight
+from datetime import timedelta # <--- Make sure this is imported
+from django.utils import timezone
+
+
+# ==========================================
+# 1. HABIT INSIGHTS (The "Observational" Engine)
+# ==========================================
+
+def build_habit_context(habit: Habit):
+    """
+    Prepares raw habit data for the AI, specifically looking for
+    patterns between dates, statuses, and USER NOTES.
+    """
+    # 1. Get last 45 days (slightly longer window for better pattern matching)
+    recent_logs = habit.logs.all().order_by('date') # Oldest to newest for trajectory
+    
+    # 2. Slice for context window if needed, but keep chronological order
+    if recent_logs.count() > 45:
+        recent_logs = recent_logs[recent_logs.count()-45:]
+
+    return {
+        "habit_name": habit.name,
+        "frequency": habit.frequency,
+        "logs": [
+            {
+                "date": log.date.strftime('%Y-%m-%d (%a)'), # Include Day of Week for AI
+                "status": log.status,
+                "value": log.entry_value,
+                "note": log.note or "" # Crucial: AI needs to see "Why"
+            } 
+            for log in recent_logs
+        ]
+    }
+
+def generate_habit_insight(habit_id, user):
+    """
+    Generates an analytical summary of habit performance, mirroring
+    the style of Goal Insights.
+    """
+    try:
+        habit = Habit.objects.get(id=habit_id, user=user)
+    except Habit.DoesNotExist:
+        return {"error": "Habit not found"}
+
+    # 1. Build Context
+    context_data = build_habit_context(habit)
+    
+    # 2. Configure AI
+    client = Groq(api_key=settings.GROQ_API_KEY)
+    
+    # 👇 MATCHING THE GOAL INSIGHT STYLE
+    system_prompt = """You generate analytical insights for daily habits based on historical logs. 
+Your tone should be reflective, objective, and human-readable. 
+Focus on:
+1. Consistency patterns (e.g., "Strong start, but fading", "Specific weekdays are weak").
+2. Contextual correlations (e.g., "Notes regarding 'fatigue' often precede a miss").
+3. Trajectory (improving or declining).
+
+Do not be a 'cheerleader'. Be an observer.
+Return strictly JSON."""
+
+    user_prompt = f"""<context>
+The user is tracking a habit: "{context_data['habit_name']}" ({context_data['frequency']}).
+Below are the recent logs. 
+'DONE'/'RESISTED' = Success. 
+'MISSED'/'FAILED' = Failure.
+</context>
+
+<data>
+{json.dumps(context_data['logs'], indent=2)}
+</data>
+
+Generate a JSON object with this EXACT structure:
+{{
+  "overview": "A 2-3 sentence summary of the recent performance trajectory.",
+  "patterns": [
+    "Observation 1 (e.g., Day-of-week trend)", 
+    "Observation 2 (e.g., Correlation with notes)", 
+    "Observation 3"
+  ],
+  "recommendation": "A single, high-level strategic adjustment based on the data."
+}}"""
+
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.5, # Lower temperature for more analytical output
+            max_tokens=1024,
+            response_format={"type": "json_object"}
+        )
+
+        response_content = completion.choices[0].message.content
+        return json.loads(response_content)
+
+    except Exception as e:
+        print(f"Groq AI Error: {e}")
+        return {"error": "Analysis failed."}
 
 def build_context_data(goal: Goal):
     """
@@ -142,3 +243,89 @@ Generate a JSON object with this EXACT structure:
     except Exception as e:
         print(f"Groq AI Error: {e}")
         return {"error": "Failed to generate insight. Please try again."}
+    
+
+
+def generate_global_habit_insight(user):
+    """
+    Analyzes the INTERACTION between all active habits to find correlations.
+    """
+    # 1. Fetch Active Habits
+    habits = Habit.objects.filter(user=user, is_active=True)
+    if not habits.exists():
+        return {"error": "No active habits to analyze."}
+
+    # 2. Build the "Habit Matrix" (Last 30 Days)
+    # Goal: [ {"date": "Mon", "Gym": "DONE", "Read": "MISSED"}, ... ]
+    
+    end_date = timezone.now().date()
+    start_date = end_date - timedelta(days=30)
+    
+    # Prefetch logs to avoid N+1 queries
+    habits = habits.prefetch_related('logs')
+    
+    matrix = []
+    
+    # Iterate through days
+    for i in range(31):
+        current_date = start_date + timedelta(days=i)
+        day_str = current_date.strftime('%Y-%m-%d (%a)')
+        
+        day_data = {"date": day_str}
+        has_data = False
+        
+        for habit in habits:
+            # Find log for this day (in memory)
+            log = next((l for l in habit.logs.all() if l.date == current_date), None)
+            
+            if log:
+                day_data[habit.name] = log.status
+                has_data = True
+            else:
+                # If it's a daily habit and no log, imply 'MISSED' (or 'N/A' for others)
+                day_data[habit.name] = "NO_LOG"
+        
+        if has_data:
+            matrix.append(day_data)
+
+    # 3. AI Analysis
+    client = Groq(api_key=settings.GROQ_API_KEY)
+    
+    system_prompt = """You are a Systems Analyst for human behavior. 
+    Analyze the daily log matrix of multiple habits to find CORRELATIONS and SYSTEM FAILURES.
+    
+    Look for:
+    1. The "Keystone Habit": Does one habit's success/failure predict the others? (e.g. "When Gym is DONE, Reading is always DONE").
+    2. The "Domino Effect": Does missing one habit trigger a chain reaction?
+    3. The "Weak Link": Is there a specific day of the week where the whole system collapses?
+    
+    Return strictly JSON."""
+
+    user_prompt = f"""
+    <data>
+    {json.dumps(matrix, indent=2)}
+    </data>
+
+    Generate JSON:
+    {{
+      "system_health": "One sentence summary of the whole system's stability.",
+      "correlations": ["Correlation 1", "Correlation 2"],
+      "strategy": "One high-level change to improve the whole system."
+    }}
+    """
+
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.5,
+            response_format={"type": "json_object"}
+        )
+        return json.loads(completion.choices[0].message.content)
+
+    except Exception as e:
+        print(f"Global AI Error: {e}")
+        return {"error": "System analysis failed."}

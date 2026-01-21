@@ -5,11 +5,12 @@ import { useUIStore } from '@/hooks/stores/useUIStore';
 import { format, addDays, subDays, isSameDay } from 'date-fns';
 import { Loader2, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Target } from 'lucide-react';
 import HabitCard from '@/components/features/tracker/HabitCard';
-import GoalCard from '@/components/features/tracker/GoalCard'; // 👈 Import new component
+import GoalCard from '@/components/features/tracker/GoalCard'; 
 import CreateItemModal from '@/components/features/tracker/CreateItemModal';
 
 export default function DashboardPage() {
-  const { selectedDate, setSelectedDate, toggleGlobalAdd } = useUIStore();
+  // 👇 UPDATED: Use 'openCreateModal' instead of 'toggleGlobalAdd'
+  const { selectedDate, setSelectedDate, openCreateModal } = useUIStore();
   const { data, isLoading } = useTodayData(selectedDate);
 
   const handlePrevDay = () => setSelectedDate(subDays(selectedDate, 1));
@@ -25,7 +26,6 @@ export default function DashboardPage() {
 
   const isToday = isSameDay(selectedDate, new Date());
   
-  // Filter for active goals (Frontend safeguard, though backend handles it too)
   const activeGoals = data?.goals?.filter((g: any) => !g.is_completed) || [];
 
   return (
@@ -53,7 +53,11 @@ export default function DashboardPage() {
         {data?.habits?.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-gray-300">
             <p className="text-gray-400 text-sm mb-4">No habits scheduled for today.</p>
-            <button onClick={toggleGlobalAdd} className="text-black font-bold text-sm underline hover:text-gray-600">
+            {/* 👇 UPDATED: Open specifically for HABIT */}
+            <button 
+              onClick={() => openCreateModal('HABIT')} 
+              className="text-black font-bold text-sm underline hover:text-gray-600"
+            >
               Create your first habit
             </button>
           </div>
@@ -64,7 +68,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* --- GOALS SECTION (NEW) --- */}
+      {/* --- GOALS SECTION --- */}
       {activeGoals.length > 0 && (
         <div className="space-y-3 pt-4">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2 mb-2">
@@ -81,7 +85,7 @@ export default function DashboardPage() {
       {/* Floating Action Button */}
       {isToday && (
         <button
-          onClick={toggleGlobalAdd}
+          onClick={() => openCreateModal('HABIT')} // 👇 UPDATED
           className="fixed bottom-24 right-6 h-14 w-14 bg-black text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-105 transition-transform z-40"
         >
           <span className="text-2xl font-light mb-1">+</span>
