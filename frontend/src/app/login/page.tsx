@@ -2,18 +2,19 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useLogin } from '@/hooks/queries/useAuth';
+import { useLogin } from '@/hooks/queries/useAuth'; // 👈 Import the hook
 import { Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   
-  // 1. Use the hook instead of raw axios
+  // 1. Initialize the hook
   const login = useLogin();
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    // 2. Use the hook instead of axios.post('http://localhost:8000...')
     login.mutate({ username, password });
   };
 
@@ -49,7 +50,7 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* Error Message Handling */}
+          {/* Error Display */}
           {login.isError && (
             <div className="p-3 rounded-md bg-red-50 text-red-500 text-sm text-center border border-red-100">
               {(login.error as any)?.response?.data?.detail || "Invalid username or password"}

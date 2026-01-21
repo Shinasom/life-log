@@ -8,7 +8,7 @@ from rest_framework_simplejwt.views import (
 urlpatterns = [
     path('admin/', admin.site.urls),
     
-    # 1. 🔧 FIX: Move these to 'api/v1/auth/' to match your frontend API client
+    # 🔧 FIX: Move these to 'api/v1/auth/' to match your frontend API client
     path('api/v1/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/v1/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
